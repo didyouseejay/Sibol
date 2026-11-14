@@ -4,7 +4,7 @@
 
 SIBOL is a computer vision project that compares three ways of classifying flower images from the **Oxford Flowers-102** dataset: a classical hand-engineered pipeline, a convolutional neural network trained from scratch, and a transfer-learned ImageNet model. All three are trained and evaluated on the same official data splits, so the comparison is fair.
 
-> **Project status:** scaffolding done; dataset acquired in Colab and official splits verified (see [`docs/dataset_exploration_report.md`](docs/dataset_exploration_report.md)). No model has been implemented or trained, and no classification results exist yet. A full log of the work is in [`Documentation.md`](Documentation.md).
+> **Project status:** dataset acquired and official splits verified (see [`docs/dataset_exploration_report.md`](docs/dataset_exploration_report.md)). Milestone 2 (HOG + linear SVM, from scratch) is **implemented and unit-tested locally**; it has **not yet been trained or evaluated on Flowers-102** (that run happens in Colab with `notebooks/02_hog_svm.ipynb`). No classification results exist yet. A full log of the work is in [`Documentation.md`](Documentation.md).
 
 ---
 
@@ -53,12 +53,13 @@ sibol/
 ├── notebooks/                  # Jupyter notebooks for experiments (run in order)
 │   ├── 00_environment_setup.ipynb
 │   ├── 01_dataset_exploration_sibol.ipynb   # prepares, verifies and explores the dataset
+│   ├── 02_hog_svm.ipynb                     # Milestone 2: HOG + linear SVM (train / validate / test)
 │   └── archive/                             # records of past runs (do not run)
 ├── src/                        # Reusable Python code imported by the notebooks
 │   ├── data/                   # Dataset loading and split helpers
-│   ├── classical/              # HOG + linear SVM (NumPy/SciPy)        [planned]
+│   ├── classical/              # HOG, linear SVM, preprocessing, feature cache (NumPy)
 │   ├── models/                 # Custom CNN and ResNet-18              [planned]
-│   ├── evaluation/             # Metrics, confusion matrices, plots    [planned]
+│   ├── evaluation/             # Metrics, confusion matrices, plots
 │   └── app/                    # Gradio web application                [planned]
 ├── tests/                      # Unit tests (pytest)
 ├── docs/                       # Reports, notes and diagrams
@@ -100,7 +101,8 @@ Google Drive layout created by notebook 00:
 ```
 MyDrive/sibol/
 ├── data/            # 102flowers.tgz, imagelabels.mat, setid.mat (source files)
-├── checkpoints/     # Saved model weights
+├── checkpoints/     # Saved model weights (e.g. hog_svm_best.npz)
+├── features/hog/    # Cached HOG features, one .npz per split (~265 MB)
 └── outputs/
     ├── figures/
     └── metrics/
@@ -135,7 +137,7 @@ python -m pytest tests/
 
 - [x] Project scaffolding, environment diagnostics, dataset exploration scaffold
 - [x] Dataset acquisition and split verification (Colab, 2026-11-11)
-- [ ] Classical pipeline: HOG + linear SVM (NumPy/SciPy)
+- [ ] Classical pipeline: HOG + linear SVM (NumPy): implemented and unit-tested; Colab training/evaluation run pending
 - [ ] Custom CNN from scratch (PyTorch)
 - [ ] ResNet-18 transfer learning
 - [ ] Unified evaluation and comparison

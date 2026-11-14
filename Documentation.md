@@ -3,9 +3,9 @@
 **SIBOL: System for Image-Based Observation and Learning**
 *A Comparative Study of Classical Machine Learning and Deep Learning Approaches for Flower Image Classification*
 
-This file is the running record of all work on the project: what changed, why, which files were affected, how the change was validated, the results, known issues and next steps. It is **rewritten after every project change** so it always describes the current state. Earlier changes are summarised in the [Change history](#11-change-history).
+This file is the running record of all work on the project: what changed, why, which files were affected, how the change was validated, the results, known issues and next steps. It is **rewritten after every project change** so it always describes the current state. Earlier changes are summarised in the [Change history](#12-change-history).
 
-**Last updated:** 2026-11-14
+**Last updated:** 2026-11-14 (Milestone 2 implementation)
 
 ---
 
@@ -28,14 +28,14 @@ This file is the running record of all work on the project: what changed, why, w
 | 2. Dataset acquisition and exploration | Done (2026-11-11); all 10 split checks passed |
 | 2b. Infrastructure stabilisation | Done (2026-11-14); pushed to `origin/main` |
 | 2c. Fresh-session Colab confirmation run | Done (2026-11-14); 10/10 checks passed, all Phase 2 results reproduced |
-| 3. Milestone 2: classical pipeline (HOG + linear SVM) | Not started (ready to start after approval) |
+| 3. Milestone 2: classical pipeline (HOG + linear SVM) | **Implemented and unit-tested locally** (2026-11-14). **Training/evaluation on Flowers-102 not yet run** (needs Colab) |
 | 4. Custom CNN | Not started |
 | 5. ResNet-18 transfer learning | Not started |
 | 6. Evaluation and comparison | Not started |
 | 7. Gradio web app | Not started |
 | 8. Final report | Not started |
 
-No model has been implemented or trained. **No classification results exist yet.**
+The HOG + linear SVM model is implemented but has **not been trained on Flowers-102**. **No classification results exist yet.**
 
 ---
 
@@ -213,7 +213,101 @@ The executed copy is kept locally as `notebooks/01_dataset_exploration_sibol_res
 
 ---
 
-## 7. File inventory
+## 7. Milestone 2: HOG + linear SVM implementation (2026-11-14)
+
+> **Status:** implemented and tested locally. **The model has not been trained or evaluated on Flowers-102**; that requires the Colab run (Section 11). No experimental results are reported here.
+
+### 7.1 What changed and why
+
+The classical pipeline (approach 1) was implemented **from scratch in NumPy**, following the approved plan and these decisions:
+
+| Decision | Choice |
+|---|---|
+| Resizing | Direct resize to 128 × 128 (no centre crop). Aspect-ratio distortion is a documented limitation |
+| Final model | Trained on the official **train** split only (1,020); hyperparameters chosen on **val** (1,020); evaluated **once** on **test** (6,149). No refit on train + val |
+| Selection metric | Validation **macro-F1** (ties: validation top-1, then grid order); top-1, macro precision, macro recall and macro-F1 all reported |
+| Class imbalance | Optional positive-class weighting (`None`, a number, or `"balanced"` = n_neg / n_pos = 101); unweighted and balanced are both in the validation grid and compared, with no assumption that weighting helps |
+| scikit-image | Only an optional development test (loose agreement); never used to compute features |
+
+No ready-made HOG or SVM is used. scikit-learn is used only for metrics. No new dependencies.
+
+### 7.2 Implementation details
+
+**Preprocessing** (`src/classical/preprocessing.py`): RGB → Pillow bilinear resize to 128 × 128 → grayscale with BT.601 weights (0.299, 0.587, 0.114) in NumPy → float64 in [0, 1]. `FeatureStandardizer` (NumPy mean/std, chunked transform) is fitted on the training features only; zero-variance features keep scale 1.
+
+**HOG** (`src/classical/hog.py`), one function per step:
+
+| Step | Function | Detail |
+|---|---|---|
+| 1 | `compute_gradients` | centred [-1, 0, 1] differences; replicated borders (one-sided difference at the edge) |
+| 2 | `magnitude_orientation` | `hypot(gx, gy)`; unsigned angle `atan2(gy, gx) mod 180` in [0, 180) |
+| 3 | `cell_histograms` | 8 × 8 cells; magnitude-weighted votes split linearly between the two nearest of 9 bin centres (10°, 30°, …, 170°), wrapping at 0/180° |
+| 4 | `build_blocks` | 2 × 2 cells, stride 1 → 15 × 15 blocks of 36 values |
+| 5 | `l2_hys` | L2 (ε = 1e-5), clip at 0.2, L2 again; all-zero blocks stay zero (no NaN) |
+| 6 | `hog_features` | flatten → **8,100** values (same layout as scikit-image's `feature_vector=True`) |
+
+**Linear SVM** (`src/classical/linear_svm.py`), `LinearSVMOvR`: 102 one-vs-rest binary SVMs trained together as `W` (8,100 × 102) and `b` (102). Per class c:
+
+`J_c(w, b) = (λ/2)·||w||² + (1/N)·Σᵢ s_ic · max(0, 1 − y_ic (w·xᵢ + b))`
+
+- Hinge loss, L2 on `w` only (**the bias is not regularised**).
+- Sample weight `s_ic` = positive weight for the class's own images, 1 for the rest. The average stays over N, so λ means the same with and without weighting.
+- Mini-batch subgradient descent, seeded shuffling, step `η_t = η₀ / (1 + decay·epoch)`, zero initialisation.
+- Prediction = argmax of the 102 scores. Parameters = 8,100 × 102 + 102 = **826,302**.
+
+**Feature cache** (`src/classical/features.py`): one `hog_<split>_<config-hash>.npz` per split (float32 features, image IDs such as `image_00001`, labels, JSON metadata). A cache is reused only if the preprocessing config, HOG config (including an implementation version), cache-format version, split name, sample count, feature shape and a SHA-256 of the ordered (image ID, label) list all match, and every value is finite. Otherwise it is re-extracted. Writes are atomic (temporary file, then rename). During extraction, each label returned by the loader is checked against the split's label list. The metadata keeps the original extraction time, so timings are still reported when features come from the cache. `assert_disjoint_splits` rejects shared or duplicate image IDs and wrong split sizes.
+
+**Evaluation** (`src/evaluation/`): `metrics.py` (top-1, macro P/R/F1 over all 102 labels with `zero_division=0`, per-class metrics, confusion matrix, JSON/CSV writers, environment info) and `plots.py` (HOG illustration, training curve, validation grid, row-normalised confusion matrix, lowest/highest per-class F1). Both are model-agnostic so the CNN and ResNet can reuse them.
+
+**Notebook** `notebooks/02_hog_svm.ipynb` (committed without outputs) has sections 1–12 as requested. It reuses the notebook-01 conventions: config cell, explicit Drive mount, clone, purge of old `src` modules, MD5-verified source files, extraction to `/content`, the 10 integrity checks, and a stop on failure. It also refuses an old code checkout that lacks the M2 modules, and the test section raises if it is run a second time in the same session.
+
+| Output (Colab) | Location |
+|---|---|
+| HOG cache (~265 MB: train 33 MB, val 33 MB, test 200 MB) | `MyDrive/sibol/features/hog/` |
+| `hog_svm_best.npz`, `hog_svm_standardizer.npz` | `MyDrive/sibol/checkpoints/` |
+| `hog_svm_results.json`, `hog_svm_validation_grid.csv`, `hog_svm_test_per_class.csv`, `hog_svm_test_confusion_matrix.csv` | `MyDrive/sibol/outputs/metrics/` |
+| `hog_demo.png`, `hog_svm_training_curve.png`, `hog_svm_validation_grid.png`, `hog_svm_confusion_matrix.png`, `hog_svm_per_class_f1.png` | `MyDrive/sibol/outputs/figures/` |
+
+**Validation grid:** λ ∈ {1e-4, 1e-3, 1e-2} × η₀ ∈ {1e-4, 1e-3, 1e-2} × positive weight ∈ {None, balanced} = 18 configurations, 50 epochs, batch 128, decay 0.05, seed 42. Locally, 30 epochs at full size (1,020 × 8,100 × 102) took about 10 s and stayed numerically stable for η₀ up to 0.1, so the grid should take roughly 5–10 minutes on a Colab CPU. This is an estimate, not a Colab measurement.
+
+**Timings recorded separately:** HOG extraction per split (decode + resize + grayscale + HOG), HOG computation alone, SVM training time of the selected configuration, total grid time, SVM inference per image (standardise + score + argmax), and an end-to-end per-image estimate.
+
+### 7.3 Validation performed (local: Windows, Python 3.12, NumPy 2.5.2, scikit-learn 1.5.1, scikit-image 0.26.0)
+
+| Validation | Result |
+|---|---|
+| `py -3.12 -m pytest tests/` | **108 passed**, 0 skipped: HOG 20, SVM 19, preprocessing 14, features/cache/pipeline 13, evaluation 5, dataset helpers 22, notebooks 15 |
+| HOG hand-checked values | horizontal edge → only the 90° bin; vertical edge → split 50/50 between bins 0 and 8; 45° ramp → 25 % / 75 % into bins 1 and 2; votes conserve magnitude; ramp gradients exact; L2-Hys matches the formula; zero image → zero vector |
+| HOG validity | length 8,100; finite and non-negative on zero, constant, noise and checkerboard images; block norms ≤ 1; invariant to brightness offset and contrast scale |
+| scikit-image reference (development only) | correlation **0.961** with `skimage.feature.hog` on a smooth synthetic image (expected to be below 1: different binning and border handling) |
+| SVM | analytic gradient matches finite differences (weighted case); bias not regularised (two-epoch test); positive weighting scales positive hinge terms exactly; balanced = n_neg / n_pos; seeded runs identical; objective decreases; separable blobs learned; score and prediction shapes; 826,302 parameters for 8,100 × 102 |
+| Cache | reloads without touching images; rebuilt after a config change, changed labels/IDs, a renamed file from another split, a corrupted file, or `force=True` |
+| Splits | overlapping, duplicate or wrongly sized splits are rejected |
+| Synthetic end-to-end pipeline | oriented-stripe images: HOG → train-only standardisation → SVM → metrics, ≥ 90 % accuracy on val and test |
+| **Whole notebook executed locally** against a synthetic stand-in dataset with the official split sizes (1,020 / 1,020 / 6,149) and 3-epoch training | all 19 code cells ran; a second run loaded all three caches in 0.7 s; all output files were written; figures checked visually. The metrics from this run come from fake data and are **not results** |
+| Bug found by that run | standardising the 6,149 test vectors created a 380 MB float64 temporary and failed on this machine (MemoryError). `transform` now works in 1,024-row chunks and writes directly to the target dtype |
+| Measured locally | HOG alone ≈ 4–6 ms per 128 × 128 image |
+
+**Not verified locally:** loading the real images (no torchvision and no dataset on this machine), real feature extraction, training, validation and test metrics, and Colab timings. **These need the Colab run.**
+
+### 7.4 Files affected
+
+| File | Change |
+|---|---|
+| `src/classical/preprocessing.py`, `hog.py`, `linear_svm.py`, `features.py` | New |
+| `src/classical/__init__.py`, `src/evaluation/__init__.py` | Docstrings now list the modules |
+| `src/evaluation/metrics.py`, `plots.py` | New |
+| `tests/test_hog.py`, `test_linear_svm.py`, `test_preprocessing.py`, `test_features.py`, `test_evaluation.py` | New |
+| `tests/test_notebooks.py` | Added a check that every code cell of every working notebook parses |
+| `notebooks/02_hog_svm.ipynb` | New, without outputs |
+| `README.md` | Status, structure, Drive layout, roadmap |
+| `Documentation.md` | This section, status, inventory, issues, next steps, history |
+
+`src/data/flowers102.py`, the official splits, notebooks 00/01, `.gitignore` and `requirements.txt` were **not changed**. Nothing was committed or pushed.
+
+---
+
+## 8. File inventory
 
 | File / folder | Purpose | Tracked |
 |---|---|---|
@@ -226,8 +320,11 @@ The executed copy is kept locally as `notebooks/01_dataset_exploration_sibol_res
 | `notebooks/archive/01_dataset_exploration_sibol_run_2026-11-11.ipynb` | Record of the 2026-11-11 run (do not run) | Yes |
 | `notebooks/01_dataset_exploration_sibol_result.ipynb` | Executed copy of the 2026-11-14 Colab run, with figures | **No** (git-ignored, local only) |
 | `src/data/flowers102.py` | Dataset preparation, loading and integrity checks | Yes |
-| `src/classical/`, `src/models/`, `src/evaluation/`, `src/app/` | Empty packages for later milestones | Yes |
-| `tests/` | 30 unit and hygiene tests | Yes |
+| `notebooks/02_hog_svm.ipynb` | Milestone 2: HOG + linear SVM, train / validate / test | Yes |
+| `src/classical/` | Preprocessing, HOG, linear SVM, feature cache | Yes |
+| `src/evaluation/` | Metrics, result files and figures (shared by all models) | Yes |
+| `src/models/`, `src/app/` | Empty packages for later milestones | Yes |
+| `tests/` | 108 unit, pipeline and hygiene tests | Yes |
 | `docs/dataset_exploration_report.md` | Written findings from Phase 2 | Yes |
 | `outputs/figures/*.png` | 4 exploration figures (2.47 MB total; largest `sample_images.png`, 1.72 MB) | Yes |
 | `outputs/metrics/` | Empty, for future results | Yes (`.gitkeep`) |
@@ -240,11 +337,15 @@ The executed copy is kept locally as `notebooks/01_dataset_exploration_sibol_res
 | `MyDrive/sibol/data/` | `102flowers.tgz`, `imagelabels.mat`, `setid.mat` | Persistent |
 | `/content/flowers102/flowers-102/` (Colab) | Extracted `jpg/` + copies of the two `.mat` files | Deleted when the runtime ends |
 | `MyDrive/sibol/outputs/figures/` | Figures from Colab runs | Persistent |
+| `MyDrive/sibol/outputs/metrics/` | Metric files from Colab runs | Persistent |
+| `MyDrive/sibol/features/hog/` | HOG feature cache, one `.npz` per split (~265 MB) | Persistent |
+| `MyDrive/sibol/checkpoints/` | `hog_svm_best.npz`, `hog_svm_standardizer.npz` | Persistent |
+| `<project>/features/`, `<project>/checkpoints/` (local) | Same, for local runs | Persistent, git-ignored |
 | `<project>/data/` (local, optional) | Same three source files; `data/extracted/` for images | Persistent, git-ignored |
 
 ---
 
-## 8. Environment notes
+## 9. Environment notes
 
 ### Local machine (Windows 11)
 
@@ -261,15 +362,20 @@ Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalle
 
 ---
 
-## 9. Known issues and open items
+## 10. Known issues and open items
 
 | # | Issue | Impact | Suggested fix |
 |---|---|---|---|
-| 1 | Local Python environments are incomplete (Section 8) | The dataset cannot be loaded locally; local tests run on Python 3.12 only | Create a project virtual environment (commands in `README.md`) |
+| 1 | Local Python environments are incomplete (Section 9) | The dataset cannot be loaded locally; local tests run on Python 3.12 only | Create a project virtual environment (commands in `README.md`) |
 | 2 | Working notebooks must be committed without embedded images | `tests/test_notebooks.py` fails if a Colab-saved notebook with images is committed | Clear outputs before committing (Edit → Clear all outputs), or save the executed copy as `notebooks/<name>_result.ipynb`, which is git-ignored |
 | 3 | Helpers read torchvision's private `_labels` / `_image_files` | A future torchvision could rename them | Label reading has a fallback; if file names disappear, the disjointness check fails loudly instead of passing silently |
 | 4 | `sample_images.png` (1.72 MB) is the largest tracked file | Small repository growth | Acceptable; future figures should stay under about 2 MB |
-| 5 | 6% of sampled images have a shorter side above 500 px; their exact sizes were not measured | None for the plan: every pipeline resizes anyway | Optional: print the non-500 sizes, or measure all 8,189 images, when preprocessing is designed |
+| 5 | 6% of sampled images have a shorter side above 500 px; their exact sizes were not measured | None for the plan: every pipeline resizes anyway | Optional: print the non-500 sizes, or measure all 8,189 images |
+| 6 | **M2 not yet trained or evaluated on Flowers-102** | No HOG + SVM results exist | Run `notebooks/02_hog_svm.ipynb` in Colab (Section 11) |
+| 7 | Colab clones from GitHub, but the M2 code is not pushed yet | Notebook 02 stops at Section 1.3 with a message | Commit and push first, or copy the project to Drive and set `CODE_DIR_COLAB` |
+| 8 | Direct 128 × 128 resize distorts aspect ratios (0.58–1.71) | Shapes are stretched, which may weaken HOG features | Accepted for M2; could be revisited in a later ablation |
+| 9 | HOG ignores colour; the validation-grid ranges were chosen from a synthetic stability check, not from flower data | The best setting may sit on the edge of the grid | If the selected λ or learning rate is at a grid edge, extend the grid (validation only) and record it |
+| 10 | Outputs written to Drive do not reach the repository automatically | Tracked `outputs/metrics` and `outputs/figures` stay without M2 files until copied | After the run, copy the small JSON/CSV/PNG files into the repository if they should be versioned |
 
 **Resolved in Phase 2c:** repository pushed (`origin/main`); the rewritten notebook was confirmed by a fresh-session Colab run.
 
@@ -277,14 +383,17 @@ Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalle
 
 ---
 
-## 10. Next steps
+## 11. Next steps
 
-1. **You:** review and commit the Phase 2c changes (Section 6): `.gitignore`, `Documentation.md`, `docs/dataset_exploration_report.md`, `notebooks/01_dataset_exploration_sibol.ipynb`, `tests/test_notebooks.py`. The result notebook is git-ignored and stays local. All commits and pushes are made by you, not by Claude.
-2. After approval, start **Milestone 2: HOG + linear SVM** (NumPy/SciPy), with unit tests and a comparison against scikit-image's HOG. Choose the resize/crop size with the aspect-ratio range (0.58–1.71) in mind.
+1. **You:** review the Milestone 2 changes (Section 7.4), then commit and push them (Claude does not commit or push). Colab needs the pushed code.
+2. **Run `notebooks/02_hog_svm.ipynb` in Colab:** use a CPU runtime (no GPU needed), then **Runtime → Run all**. If `/content/sibol` exists from an earlier session in the same runtime, run `!rm -rf /content/sibol` first. The first run extracts HOG features (several minutes) and caches them on Drive; later runs reuse them.
+3. Save the executed copy as `notebooks/02_hog_svm_result.ipynb` (git-ignored), and share the printed outputs so the notebook's Section 12 ("Observations") and this file can be filled in with the **actual** numbers.
+4. If the selected hyperparameters lie on a grid edge, extend the grid and re-run (validation only; the test section runs once per session).
+5. Then Milestone 3: custom CNN.
 
 ---
 
-## 11. Change history
+## 12. Change history
 
 | Date | Change |
 |---|---|
@@ -293,3 +402,4 @@ Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalle
 | 2026-11-11 | Phase 2: dataset acquired and explored in Colab; all 10 split checks passed. Observations, `docs/dataset_exploration_report.md`, figures in `outputs/figures/`, README update; created this file. |
 | 2026-11-14 | Phase 2b: infrastructure stabilisation. Git initialised with a reviewed initial commit (not pushed); `.gitignore` rewritten and root-anchored (fixed `src/data/` being ignored); `.gitattributes` added; dataset helper rewritten so loading never downloads and `DOWNLOAD=True` is the only download path; notebook rewritten for fresh Colab sessions with explicit Drive mount, config-driven paths, MD5-verified source files, extraction to temporary disk and a stop on failed checks; 2026-11-11 run archived as a 34 KB record; superseded scaffold notebook removed; tests expanded from 9 to 30. |
 | 2026-11-14 | Phase 2c: fresh-session Colab run confirmed 10/10 checks and all Phase 2 numbers. Corrected "shorter side 500 px in every image" to 94% and listed all 7 tied smallest test classes (notebook Section 13, report, this file). `.gitignore` now excludes `notebooks/*_result.ipynb`; notebook hygiene tests skip those copies. Not committed. |
+| 2026-11-14 | Milestone 2 implementation: from-scratch NumPy HOG (8,100 features, L2-Hys) and one-vs-rest hinge-loss linear SVM (L2 on weights only, optional positive weighting, seeded mini-batch SGD); train-only standardiser; validated split-aware HOG cache; shared evaluation metrics/plots; notebook 02; tests 31 → 108. Notebook executed end to end locally on a synthetic stand-in dataset (fixed a test-split memory spike). **No Flowers-102 training or results yet.** Not committed. |

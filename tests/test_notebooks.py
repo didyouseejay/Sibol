@@ -12,6 +12,7 @@ Run from the project root with:
     python -m pytest tests/
 """
 
+import ast
 import json
 from pathlib import Path
 
@@ -57,6 +58,20 @@ def test_working_notebook_has_no_heavy_outputs(path):
             assert not any(k.startswith("image/") for k in data), (
                 f"{path.name} has embedded images; save figures to outputs/figures and clear outputs"
             )
+
+
+@pytest.mark.parametrize("path", WORKING_NOTEBOOKS, ids=lambda p: p.name)
+def test_working_notebook_code_cells_parse(path):
+    """Every code cell is valid Python (IPython '!'/'%' lines are ignored)."""
+    for i, cell in enumerate(_load(path)["cells"]):
+        if cell["cell_type"] != "code":
+            continue
+        src = "".join(cell["source"])
+        lines = ["" if line.lstrip().startswith(("!", "%")) else line for line in src.splitlines()]
+        try:
+            ast.parse("\n".join(lines))
+        except SyntaxError as exc:
+            pytest.fail(f"{path.name} cell {i}: {exc}")
 
 
 @pytest.mark.parametrize("path", WORKING_NOTEBOOKS, ids=lambda p: p.name)
