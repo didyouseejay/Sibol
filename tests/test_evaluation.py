@@ -57,5 +57,9 @@ def test_figures_are_written(tmp_path):
     P.plot_per_class_f1(per_class, path=tmp_path / "f1.png")
     P.plot_hog_demo(rng.integers(0, 255, (40, 60, 3), dtype=np.uint8), rng.random((16, 16)), rng.random((16, 16)),
                     rng.random((2, 2, 9)), cell_size=8, path=tmp_path / "hog.png")
-    for name in ("curve", "grid", "cm", "f1", "hog"):
+    P.plot_ablation([{"name": "HOG", "val_macro_f1": 0.12, "kept": True},
+                     {"name": "+ sqrt", "val_macro_f1": 0.11, "kept": False}], path=tmp_path / "abl.png")
+    P.plot_color_demo(rng.integers(0, 255, (16, 16, 3), dtype=np.uint8), rng.random(320), 16, 4,
+                      path=tmp_path / "col.png")
+    for name in ("curve", "grid", "cm", "f1", "hog", "abl", "col"):
         assert (tmp_path / f"{name}.png").stat().st_size > 1000

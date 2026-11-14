@@ -122,6 +122,51 @@ def plot_validation_grid(rows: Sequence[dict], path: Optional[Path] = None,
     return _finish(fig, path)
 
 
+def plot_ablation(steps: Sequence[dict], title: str = "Ablation: validation macro-F1",
+                  path: Optional[Path] = None):
+    """Horizontal bars, one per evaluated recipe, in evaluation order.
+
+    Each step dict needs ``name``, ``val_macro_f1`` and ``kept`` (bool). Kept
+    steps are drawn in the series colour, rejected ones in grey; the value is
+    printed at the end of each bar.
+    """
+    names = [s["name"] for s in steps][::-1]
+    values = [s["val_macro_f1"] for s in steps][::-1]
+    colors = [SERIES[0] if s["kept"] else "#b5b5b5" for s in steps][::-1]
+    fig, ax = plt.subplots(figsize=(8, 0.45 * len(steps) + 1.4))
+    ax.barh(np.arange(len(steps)), values, color=colors, height=0.65)
+    for y, v in enumerate(values):
+        ax.text(v + max(values) * 0.01, y, f"{v:.3f}", va="center", fontsize=9, color=INK)
+    ax.set_yticks(np.arange(len(steps)))
+    ax.set_yticklabels(names, fontsize=9)
+    ax.set_xlim(0, max(values) * 1.15)
+    ax.set_xlabel("validation macro-F1 (best SVM configuration per recipe)", color=INK)
+    ax.set_title(f"{title}\n(blue = kept in the pipeline, grey = not kept)", color=INK, fontsize=11)
+    _style(ax)
+    ax.grid(False, axis="y")
+    return _finish(fig, path)
+
+
+def plot_color_demo(rgb: np.ndarray, hist: np.ndarray, h_bins: int, s_bins: int,
+                    title: str = "", path: Optional[Path] = None):
+    """The resized image next to its global hue x saturation histogram (as a heat map)."""
+    fig, axes = plt.subplots(1, 2, figsize=(10, 3.8), gridspec_kw={"width_ratios": [1, 1.6]})
+    axes[0].imshow(rgb)
+    axes[0].set_title("Resized image", color=INK)
+    axes[0].axis("off")
+    grid = hist[: h_bins * s_bins].reshape(h_bins, s_bins).T
+    im = axes[1].imshow(grid, cmap=SEQUENTIAL_CMAP, aspect="auto", origin="lower", vmin=0)
+    axes[1].set_xlabel("hue bin (0 = red, ~5 = green, ~10 = blue)", color=INK)
+    axes[1].set_ylabel("saturation bin (0 = grey)", color=INK)
+    axes[1].set_yticks(np.arange(s_bins))
+    axes[1].set_title("Global hue x saturation histogram", color=INK)
+    axes[1].tick_params(colors=MUTED, labelcolor=INK)
+    fig.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04).set_label("share of pixels", color=INK)
+    if title:
+        fig.suptitle(title, color=INK)
+    return _finish(fig, path)
+
+
 # ---------------------------------------------------------------------------
 # Evaluation
 # ---------------------------------------------------------------------------

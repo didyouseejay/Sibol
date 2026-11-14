@@ -1,18 +1,26 @@
-"""HOG feature extraction for whole splits, with a validated on-disk cache.
+"""Feature extraction for whole splits, with a validated on-disk cache.
 
-One cache file per split::
+Supported feature types (a :class:`FeatureSpec` each):
 
-    <cache_dir>/hog_<split>_<config-hash>.npz
-        features   float32 (N, 8100)
+* ``"hog"``   -- :mod:`src.classical.hog` on the preprocessed grayscale image
+* ``"color"`` -- :mod:`src.classical.color` on the preprocessed RGB image
+
+One cache file per feature type, configuration and split::
+
+    <cache_dir>/<kind>_<split>_<config-hash>.npz
+        features   float32 (N, D)
         image_ids  str     (N,)   e.g. "image_00001"
         labels     int64   (N,)   0-101
         meta       JSON string (see below)
 
-The metadata records the preprocessing and HOG configuration, the split name,
-the number of samples, a SHA-256 fingerprint of the (image_id, label) list,
-the cache-format and HOG implementation versions, and how long the original
+The metadata records the preprocessing and feature configuration, the split
+name, the number of samples, a SHA-256 fingerprint of the (image_id, label)
+list, the cache-format and implementation versions, and how long the original
 extraction took. A cache is **reused only if all of these match** what the
 caller expects; otherwise it is rebuilt (the reason is reported).
+
+The HOG cache key is unchanged since Milestone 2, so existing HOG caches
+(e.g. ``hog_<split>_b5525eb6a0c2.npz``) stay valid.
 
 Images are read through the project's official loader
 (:func:`src.data.flowers102.load_split`), so the split membership and the
@@ -26,12 +34,13 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Optional, Sequence
+from typing import Callable, Mapping, Optional, Sequence, Union
 
 import numpy as np
 
+from .color import ColorConfig, color_histogram
 from .hog import HOGConfig, hog_features
-from .preprocessing import PreprocessConfig, preprocess_image
+from .preprocessing import PreprocessConfig, preprocess_image, preprocess_rgb
 
 CACHE_FORMAT_VERSION = 1
 
@@ -54,6 +63,44 @@ class FeatureSet:
         return int(self.features.shape[0])
 
 
+@dataclass(frozen=True)
+class FeatureSpec:
+    """What to compute for every image: a feature type plus its configuration."""
+
+    kind: str                                   # "hog" or "color"
+    preprocess: PreprocessConfig
+    config: Union[HOGConfig, ColorConfig]
+
+    def __post_init__(self) -> None:
+        expected = {"hog": HOGConfig, "color": ColorConfig}
+        if self.kind not in expected or not isinstance(self.config, expected[self.kind]):
+            raise ValueError(f"kind {self.kind!r} does not match config {type(self.config).__name__}")
+
+    def payload(self) -> dict:
+        """Everything that changes the numbers (preprocessing + feature config)."""
+        return {"preprocess": self.preprocess.to_dict(), self.kind: self.config.to_dict()}
+
+    @property
+    def feature_length(self) -> int:
+        if self.kind == "hog":
+            size = self.preprocess.image_size
+            return self.config.feature_length((size, size))
+        return self.config.feature_length
+
+    def compute(self, image) -> np.ndarray:
+        if self.kind == "hog":
+            return hog_features(preprocess_image(image, self.preprocess), self.config)
+        return color_histogram(preprocess_rgb(image, self.preprocess), self.config)
+
+
+def hog_spec(preprocess: PreprocessConfig = PreprocessConfig(), hog: HOGConfig = HOGConfig()) -> FeatureSpec:
+    return FeatureSpec("hog", preprocess, hog)
+
+
+def color_spec(preprocess: PreprocessConfig = PreprocessConfig(), color: ColorConfig = ColorConfig()) -> FeatureSpec:
+    return FeatureSpec("color", preprocess, color)
+
+
 # ---------------------------------------------------------------------------
 # Identity of a split and of a configuration
 # ---------------------------------------------------------------------------
@@ -70,42 +117,48 @@ def samples_fingerprint(image_ids: Sequence[str], labels: Sequence[int]) -> str:
     return h.hexdigest()
 
 
-def config_hash(preprocess: PreprocessConfig, hog: HOGConfig) -> str:
+def spec_hash(spec: FeatureSpec) -> str:
     """Short hash of everything that changes the numbers in a feature vector."""
-    payload = {"preprocess": preprocess.to_dict(), "hog": hog.to_dict(), "cache_format": CACHE_FORMAT_VERSION}
+    payload = {**spec.payload(), "cache_format": CACHE_FORMAT_VERSION}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
 
 
-def cache_path(cache_dir: Path, split: str, preprocess: PreprocessConfig, hog: HOGConfig) -> Path:
-    return Path(cache_dir) / f"hog_{split}_{config_hash(preprocess, hog)}.npz"
+def spec_cache_path(cache_dir: Path, split: str, spec: FeatureSpec) -> Path:
+    return Path(cache_dir) / f"{spec.kind}_{split}_{spec_hash(spec)}.npz"
 
 
-def expected_meta(split: str, image_ids: Sequence[str], labels: Sequence[int],
-                  preprocess: PreprocessConfig, hog: HOGConfig) -> dict:
-    """The metadata a valid cache for this split and configuration must carry."""
-    size = preprocess.image_size
+def spec_expected_meta(split: str, image_ids: Sequence[str], labels: Sequence[int], spec: FeatureSpec) -> dict:
+    """The metadata a valid cache for this split and feature spec must carry."""
     return {
         "cache_format": CACHE_FORMAT_VERSION,
         "split": split,
         "n_samples": len(image_ids),
         "samples_sha256": samples_fingerprint(image_ids, labels),
-        "preprocess": preprocess.to_dict(),
-        "hog": hog.to_dict(),
-        "feature_length": hog.feature_length((size, size)),
+        **spec.payload(),
+        "feature_length": spec.feature_length,
     }
+
+
+# HOG-specific names kept for Milestone 2 code (notebook 02) -------------------
+def config_hash(preprocess: PreprocessConfig, hog: HOGConfig) -> str:
+    return spec_hash(hog_spec(preprocess, hog))
+
+
+def cache_path(cache_dir: Path, split: str, preprocess: PreprocessConfig, hog: HOGConfig) -> Path:
+    return spec_cache_path(cache_dir, split, hog_spec(preprocess, hog))
+
+
+def expected_meta(split: str, image_ids: Sequence[str], labels: Sequence[int],
+                  preprocess: PreprocessConfig, hog: HOGConfig) -> dict:
+    return spec_expected_meta(split, image_ids, labels, hog_spec(preprocess, hog))
 
 
 # ---------------------------------------------------------------------------
 # Extraction
 # ---------------------------------------------------------------------------
-def extract_features(
-    load: SampleLoader,
-    labels: Sequence[int],
-    preprocess: PreprocessConfig = PreprocessConfig(),
-    hog: HOGConfig = HOGConfig(),
-    progress: Optional[Callable] = None,
-) -> tuple[np.ndarray, float]:
-    """Compute HOG features for every sample of a split.
+def extract_spec(load: SampleLoader, labels: Sequence[int], spec: FeatureSpec,
+                 progress: Optional[Callable] = None) -> tuple[np.ndarray, float]:
+    """Compute one feature type for every sample of a split.
 
     Args:
         load: ``load(i) -> (image, label)``. The label is checked against ``labels[i]``.
@@ -114,19 +167,24 @@ def extract_features(
 
     Returns:
         ``(features float32 (N, D), elapsed_seconds)``. The time covers image
-        decoding, preprocessing and HOG.
+        decoding, preprocessing and feature computation.
     """
     n = len(labels)
-    size = preprocess.image_size
-    out = np.empty((n, hog.feature_length((size, size))), dtype=np.float32)
+    out = np.empty((n, spec.feature_length), dtype=np.float32)
     indices = range(n) if progress is None else progress(range(n))
     t0 = time.perf_counter()
     for i in indices:
         image, label = load(i)
         if int(label) != int(labels[i]):
             raise RuntimeError(f"sample {i}: loader label {label} != expected {labels[i]}")
-        out[i] = hog_features(preprocess_image(image, preprocess), hog)
+        out[i] = spec.compute(image)
     return out, time.perf_counter() - t0
+
+
+def extract_features(load: SampleLoader, labels: Sequence[int], preprocess: PreprocessConfig = PreprocessConfig(),
+                     hog: HOGConfig = HOGConfig(), progress: Optional[Callable] = None) -> tuple[np.ndarray, float]:
+    """HOG features for every sample (Milestone 2 name)."""
+    return extract_spec(load, labels, hog_spec(preprocess, hog), progress)
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +229,44 @@ def load_feature_cache(path: Path, expected: Mapping) -> tuple[Optional[FeatureS
     return FeatureSet(expected["split"], features, image_ids, labels, meta, from_cache=True), "ok"
 
 
+def get_or_extract(
+    spec: FeatureSpec,
+    split: str,
+    image_ids: Sequence[str],
+    labels: Sequence[int],
+    load: SampleLoader,
+    cache_dir: Path,
+    force: bool = False,
+    progress: Optional[Callable] = None,
+) -> tuple[FeatureSet, str]:
+    """Return one feature type of a split from a valid cache, or extract and cache it.
+
+    Returns:
+        ``(FeatureSet, status)`` where status explains whether the cache was used.
+    """
+    if len(image_ids) != len(labels):
+        raise ValueError("image_ids and labels differ in length")
+    expected = spec_expected_meta(split, image_ids, labels, spec)
+    path = spec_cache_path(cache_dir, split, spec)
+
+    if not force:
+        fs, reason = load_feature_cache(path, expected)
+        if fs is not None:
+            return fs, f"loaded from cache {path.name}"
+    else:
+        reason = "force=True"
+
+    features, seconds = extract_spec(load, labels, spec, progress)
+    if not np.all(np.isfinite(features)):
+        raise RuntimeError(f"{split}: {spec.kind} features contain NaN or infinite values")
+    meta = {**expected, "extraction_seconds": seconds, "extraction_seconds_per_image": seconds / max(len(labels), 1),
+            "created_unix": time.time()}
+    fs = FeatureSet(split, features, np.asarray(image_ids, dtype=str), np.asarray(labels, dtype=np.int64),
+                    meta, from_cache=False)
+    save_feature_cache(path, fs)
+    return fs, f"extracted ({reason}); saved {path.name}"
+
+
 def get_or_extract_features(
     split: str,
     image_ids: Sequence[str],
@@ -182,32 +278,8 @@ def get_or_extract_features(
     force: bool = False,
     progress: Optional[Callable] = None,
 ) -> tuple[FeatureSet, str]:
-    """Return the features of a split from a valid cache, or extract and cache them.
-
-    Returns:
-        ``(FeatureSet, status)`` where status explains whether the cache was used.
-    """
-    if len(image_ids) != len(labels):
-        raise ValueError("image_ids and labels differ in length")
-    expected = expected_meta(split, image_ids, labels, preprocess, hog)
-    path = cache_path(cache_dir, split, preprocess, hog)
-
-    if not force:
-        fs, reason = load_feature_cache(path, expected)
-        if fs is not None:
-            return fs, f"loaded from cache {path.name}"
-    else:
-        reason = "force=True"
-
-    features, seconds = extract_features(load, labels, preprocess, hog, progress)
-    if not np.all(np.isfinite(features)):
-        raise RuntimeError(f"{split}: HOG produced NaN or infinite values")
-    meta = {**expected, "extraction_seconds": seconds, "extraction_seconds_per_image": seconds / max(len(labels), 1),
-            "created_unix": time.time()}
-    fs = FeatureSet(split, features, np.asarray(image_ids, dtype=str), np.asarray(labels, dtype=np.int64),
-                    meta, from_cache=False)
-    save_feature_cache(path, fs)
-    return fs, f"extracted ({reason}); saved {path.name}"
+    """HOG features of a split from cache or freshly extracted (Milestone 2 name)."""
+    return get_or_extract(hog_spec(preprocess, hog), split, image_ids, labels, load, cache_dir, force, progress)
 
 
 # ---------------------------------------------------------------------------

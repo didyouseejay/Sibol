@@ -55,6 +55,50 @@ def test_config_validation():
         PreprocessConfig(image_size=0)
     with pytest.raises(ValueError):
         PreprocessConfig(resample="lanczos-ish")
+    with pytest.raises(ValueError):
+        PreprocessConfig(resize_mode="pad")
+
+
+def test_milestone2_cache_key_is_unchanged():
+    """The direct-mode description and the HOG cache hash must not change: Drive caches depend on them."""
+    from src.classical import features as F
+    from src.classical.hog import HOGConfig
+
+    assert PreprocessConfig().to_dict() == {"image_size": 128, "resample": "bilinear",
+                                            "resize_mode": "direct (aspect ratio not preserved)",
+                                            "grayscale": "BT.601"}
+    assert F.config_hash(PreprocessConfig(), HOGConfig()) == "b5525eb6a0c2"
+    assert F.config_hash(PreprocessConfig(resize_mode="center_crop"), HOGConfig()) != "b5525eb6a0c2"
+
+
+def test_center_square_box():
+    from src.classical.preprocessing import center_square_box
+
+    assert center_square_box(300, 100) == (100, 0, 200, 100)
+    assert center_square_box(100, 301) == (0, 100, 100, 200)
+    assert center_square_box(50, 50) == (0, 0, 50, 50)
+
+
+def test_center_crop_removes_the_ends_of_the_long_side():
+    from src.classical.preprocessing import preprocess_rgb
+
+    arr = np.zeros((100, 300, 3), np.uint8)
+    arr[:, :100] = [255, 0, 0]       # left third red
+    arr[:, 100:200] = [0, 255, 0]    # middle third green
+    arr[:, 200:] = [0, 0, 255]       # right third blue
+    img = Image.fromarray(arr)
+    crop = preprocess_rgb(img, PreprocessConfig(resize_mode="center_crop"))
+    assert crop.shape == (128, 128, 3)
+    np.testing.assert_array_equal(crop[2:-2, 2:-2], np.broadcast_to([0, 255, 0], (124, 124, 3)))
+    direct = preprocess_rgb(img, PreprocessConfig())
+    assert direct[64, 5, 0] == 255 and direct[64, -5, 2] == 255     # direct keeps (squashes) all three
+
+
+def test_grayscale_path_is_unchanged_by_refactor():
+    from src.classical.preprocessing import preprocess_rgb
+
+    img = rgb_image()
+    np.testing.assert_array_equal(preprocess_image(img), rgb_to_gray(preprocess_rgb(img)))
 
 
 # ------------------------------------------------------------- standardiser

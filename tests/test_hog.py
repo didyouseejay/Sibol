@@ -164,6 +164,34 @@ def test_config_fingerprint_changes_with_parameters():
     assert HOGConfig().fingerprint() != HOGConfig(n_bins=12).fingerprint()
 
 
+# ------------------------------------------------- flip as a permutation
+def test_flip_permutation_matches_hog_of_mirrored_image():
+    gray = np.random.default_rng(6).random((128, 128))
+    f = H.hog_features(gray)
+    flipped = H.hog_features(gray[:, ::-1].copy())
+    np.testing.assert_allclose(flipped, f[H.flip_permutation(CFG, (128, 128))], atol=1e-9)
+
+
+def test_flip_permutation_is_an_involution_and_a_permutation():
+    p = H.flip_permutation(CFG, (128, 128))
+    assert sorted(p.tolist()) == list(range(8100))
+    np.testing.assert_array_equal(p[p], np.arange(8100))
+
+
+def test_flip_permutation_other_configuration():
+    cfg = HOGConfig(cell_size=16, n_bins=6, block_size=3, block_stride=1)
+    gray = np.random.default_rng(7).random((96, 128))
+    np.testing.assert_allclose(H.hog_features(gray[:, ::-1].copy(), cfg),
+                               H.hog_features(gray, cfg)[H.flip_permutation(cfg, gray.shape)], atol=1e-9)
+
+
+def test_flip_permutation_rejects_asymmetric_tiling():
+    with pytest.raises(ValueError):
+        H.flip_permutation(HOGConfig(block_stride=3), (128, 128))   # 16 cells, blocks of 2, stride 3: (16 - 2) % 3 != 0
+    with pytest.raises(ValueError):
+        H.flip_permutation(CFG, (128, 130))                          # width not a whole number of cells
+
+
 # ------------------------------------- optional development-time reference
 def test_close_to_scikit_image_reference():
     """Loose agreement with skimage.feature.hog (development check only).

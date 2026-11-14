@@ -4,7 +4,7 @@
 
 SIBOL is a computer vision project that compares three ways of classifying flower images from the **Oxford Flowers-102** dataset: a classical hand-engineered pipeline, a convolutional neural network trained from scratch, and a transfer-learned ImageNet model. All three are trained and evaluated on the same official data splits, so the comparison is fair.
 
-> **Project status:** dataset acquired and official splits verified (see [`docs/dataset_exploration_report.md`](docs/dataset_exploration_report.md)). Milestone 2 (HOG + linear SVM, from scratch) is **implemented and unit-tested locally**; it has **not yet been trained or evaluated on Flowers-102** (that run happens in Colab with `notebooks/02_hog_svm.ipynb`). No classification results exist yet. A full log of the work is in [`Documentation.md`](Documentation.md).
+> **Project status:** dataset verified; Milestone 2 (from-scratch HOG + linear SVM) trained and evaluated: **test top-1 0.1197, macro-F1 0.1024**. Milestone 2b (feature improvements: colour, square-root normalisation, flip augmentation, centre crop) is implemented and tested locally; its Colab run (`notebooks/03_classical_improvements.ipynb`) is pending. Details in [`Documentation.md`](Documentation.md).
 
 ---
 
@@ -54,10 +54,11 @@ sibol/
 │   ├── 00_environment_setup.ipynb
 │   ├── 01_dataset_exploration_sibol.ipynb   # prepares, verifies and explores the dataset
 │   ├── 02_hog_svm.ipynb                     # Milestone 2: HOG + linear SVM (train / validate / test)
+│   ├── 03_classical_improvements.ipynb      # Milestone 2b: colour, sqrt, flip, centre-crop ablation
 │   └── archive/                             # records of past runs (do not run)
 ├── src/                        # Reusable Python code imported by the notebooks
 │   ├── data/                   # Dataset loading and split helpers
-│   ├── classical/              # HOG, linear SVM, preprocessing, feature cache (NumPy)
+│   ├── classical/              # HOG, colour histograms, linear SVM, feature cache, ablation (NumPy)
 │   ├── models/                 # Custom CNN and ResNet-18              [planned]
 │   ├── evaluation/             # Metrics, confusion matrices, plots
 │   └── app/                    # Gradio web application                [planned]
@@ -137,7 +138,8 @@ python -m pytest tests/
 
 - [x] Project scaffolding, environment diagnostics, dataset exploration scaffold
 - [x] Dataset acquisition and split verification (Colab, 2026-11-11)
-- [ ] Classical pipeline: HOG + linear SVM (NumPy): implemented and unit-tested; Colab training/evaluation run pending
+- [x] Classical pipeline: HOG + linear SVM (NumPy): test top-1 0.1197, macro-F1 0.1024 (M2 run 2)
+- [ ] Classical improvements (M2b): colour, sqrt, flip, centre-crop ablation: implemented and tested locally; Colab run pending
 - [ ] Custom CNN from scratch (PyTorch)
 - [ ] ResNet-18 transfer learning
 - [ ] Unified evaluation and comparison

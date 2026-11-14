@@ -206,6 +206,36 @@ def l2_hys(v: np.ndarray, clip: float = 0.2, eps: float = 1e-5) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Horizontal flip as a permutation of the descriptor
+# ---------------------------------------------------------------------------
+def flip_permutation(config: HOGConfig = HOGConfig(), image_shape: tuple[int, int] = (128, 128)) -> np.ndarray:
+    """Index array ``p`` with ``hog(fliplr(img)) == hog(img)[p]``.
+
+    Mirroring an image left-right mirrors the cell grid and changes every
+    unsigned orientation ``theta`` into ``180 - theta``. With bin centres at
+    ``(k + 0.5) * 180 / n``, bin ``k`` maps exactly onto bin ``n - 1 - k``
+    (and linear vote interpolation is symmetric), so the flipped descriptor is
+    a re-ordering of the original: block column ``j -> bx - 1 - j``, cell
+    column inside a block ``dx -> b - 1 - dx``, bin ``k -> n - 1 - k``. L2-Hys
+    acts per block and is unaffected by re-ordering.
+
+    This lets training images be flip-augmented from cached features, with no
+    re-extraction.
+
+    Raises:
+        ValueError: if the image width is not a whole number of cells, or the
+            blocks do not tile the cell columns symmetrically (then flipping is
+            not an exact permutation).
+    """
+    (cy, cx), (by, bx) = config.grid_shape(image_shape)
+    if image_shape[1] % config.cell_size or (cx - config.block_size) % config.block_stride:
+        raise ValueError("flip is an exact permutation only if cells and blocks tile the width exactly")
+    b, n = config.block_size, config.n_bins
+    idx = np.arange(by * bx * b * b * n).reshape(by, bx, b, b, n)
+    return idx[:, ::-1, :, ::-1, ::-1].ravel()
+
+
+# ---------------------------------------------------------------------------
 # 6. Full descriptor
 # ---------------------------------------------------------------------------
 def hog_features(gray: np.ndarray, config: HOGConfig = HOGConfig()) -> np.ndarray:

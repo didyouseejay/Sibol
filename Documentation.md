@@ -3,9 +3,9 @@
 **SIBOL: System for Image-Based Observation and Learning**
 *A Comparative Study of Classical Machine Learning and Deep Learning Approaches for Flower Image Classification*
 
-This file is the running record of all work on the project: what changed, why, which files were affected, how the change was validated, the results, known issues and next steps. It is **rewritten after every project change** so it always describes the current state. Earlier changes are summarised in the [Change history](#12-change-history).
+This file is the running record of all work on the project: what changed, why, which files were affected, how the change was validated, the results, known issues and next steps. It is **rewritten after every project change** so it always describes the current state. Earlier changes are summarised in the [Change history](#13-change-history).
 
-**Last updated:** 2026-11-14 (Milestone 2: run 2 prepared)
+**Last updated:** 2026-11-14 (Milestone 2b implemented)
 
 ---
 
@@ -28,14 +28,15 @@ This file is the running record of all work on the project: what changed, why, w
 | 2. Dataset acquisition and exploration | Done (2026-11-11); all 10 split checks passed |
 | 2b. Infrastructure stabilisation | Done (2026-11-14); pushed to `origin/main` |
 | 2c. Fresh-session Colab confirmation run | Done (2026-11-14); 10/10 checks passed, all Phase 2 results reproduced |
-| 3. Milestone 2: classical pipeline (HOG + linear SVM) | Implemented and tested (2026-11-14); **first Colab run done**: test top-1 0.1195, macro-F1 0.0993 (Section 7.5). Regularisation grid found ineffective; **run 2 (wider λ grid) prepared, waiting for the Colab run** (Section 7.6) |
+| 3. Milestone 2: classical pipeline (HOG + linear SVM) | Implemented and tested (2026-11-14); run 1: test top-1 0.1195, macro-F1 0.0993 (Section 7.5). Run 2 (wider λ grid) done: **test top-1 0.1197, macro-F1 0.1024**, same configuration as run 1 (Section 7.7). Proposed as the final M2 result |
+| 3b. Milestone 2b: classical improvements (colour, sqrt, flip, centre crop) | **Implemented and tested locally** (2026-11-14). **Colab run pending** (Section 8) |
 | 4. Custom CNN | Not started |
 | 5. ResNet-18 transfer learning | Not started |
 | 6. Evaluation and comparison | Not started |
 | 7. Gradio web app | Not started |
 | 8. Final report | Not started |
 
-First classification results exist for HOG + linear SVM only (Section 7.5). No other model has been implemented.
+Classification results exist for HOG + linear SVM only (Sections 7.5 and 7.7). No other model has been implemented.
 
 ---
 
@@ -383,9 +384,138 @@ Grid rationale: over 100 epochs with decay 0.05 and about 8 mini-batches per epo
 
 **Protocol note:** run 2 evaluates the test split a second time. Both runs are reported; run 2 is not selected because of its test score.
 
+### 7.7 Run 2 results (2026-11-14, commit `c9a5d33`)
+
+**What happened:** `notebooks/02_hog_svm.ipynb` (run 2) ran end to end in Colab with no errors: MD5 OK, 10/10 checks, the run-1 HOG caches reused (hash `b5525eb6a0c2`), 20 configurations, one test evaluation. Run 1's files on Drive were kept. The executed copy is stored locally as `notebooks/02_hog_svm_run_2_result.ipynb` (git-ignored; scanned, no secrets).
+
+**Results (actual)**
+
+| Metric | Run 1 val | Run 2 val | Run 1 test | **Run 2 test** |
+|---|---:|---:|---:|---:|
+| Top-1 accuracy | 0.1422 | 0.1412 | 0.1195 | **0.1197** |
+| Macro precision | 0.1354 | 0.1285 | 0.1067 | **0.1057** |
+| Macro recall | 0.1422 | 0.1412 | 0.1409 | **0.1423** |
+| Macro-F1 | 0.1200 | 0.1214 | 0.0993 | **0.1024** |
+
+Selected (both runs): unweighted, learning rate 1e-3, λ 1e-4; run 2 used 100 epochs. 826,302 parameters. SVM training 35.0 s; grid 11.8 min; inference 174 µs per image; HOG alone 8.74 ms per image this session (6.30 ms in run 1, Colab CPU variation); extraction with decoding ≈ 11 ms per image (measured in run 1).
+
+**Validation grid (macro-F1)**
+
+| Positive weight, learning rate | λ 1e-4 | 1e-2 | 0.1 | 1 | 10 |
+|---|---:|---:|---:|---:|---:|
+| None, 1e-3 | **0.121** | 0.121 | 0.119 | 0.118 | 0.111 |
+| None, 1e-2 | 0.054 | 0.048 | 0.053 | 0.092 | 0.113 |
+| balanced, 1e-3 | 0.104 | 0.105 | 0.103 | 0.110 | 0.114 |
+| balanced, 1e-2 | 0.036 | 0.038 | 0.035 | 0.051 | 0.071 |
+
+**Observations**
+
+1. **λ now acts as intended:** ‖W‖ fell from 0.966 to 0.424 (lr 1e-3) and from 2.05 to 0.256 (lr 1e-2) as λ rose from 1e-4 to 10. This fixes run 1's problem.
+2. **Stronger regularisation did not improve validation.** At lr 1e-3, macro-F1 drifted down from 0.121 to 0.111. At lr 1e-2 it rescued the over-fitted fits (0.054 → 0.113) but did not beat the best.
+3. **Training accuracy stayed 0.96–1.00 in every configuration.** The ≈ 14 % validation ceiling is therefore attributed to the **features** (grayscale HOG with 10 training images per class), not to the SVM's regularisation.
+4. The selected λ is at the lower grid edge, but λ 1e-4 and 1e-2 give the same macro-F1, so smaller λ would behave the same (no effective penalty). **No further search is warranted.**
+5. The selected fit had not fully converged (objective −2.1 % over the last 10 epochs); the fixed epoch budget acts as early stopping. The best converged setting (lr 1e-2, λ 10, change 0.2 %) reached 0.113, close to the best.
+6. Balanced weighting again did not help (best 0.114 vs 0.121), and it was unstable with lr 1e-2 and small λ.
+7. **Run 2 reproduces run 1** (736 vs 735 correct test images). The M2 result is robust to the SVM's hyperparameters.
+
+**Final M2 result (proposed): run 2**, because it searched the wider grid that run 1 lacked. Test top-1 **0.1197**, macro-F1 **0.1024**. The test split was evaluated twice (once per run); both runs selected the same configuration, and run 2 was motivated by run 1's validation results only.
+
+**Files affected:** `notebooks/02_hog_svm.ipynb` (Observations cell only: run 2 findings added) and `Documentation.md`. The result notebook was renamed from `02_hog_svm_result_2.ipynb` to `02_hog_svm_run_2_result.ipynb`, because the old name did not match the `*_result.ipynb` ignore rule: it would have been committed, and it made `tests/test_notebooks.py` fail. Tests: `py -3.12 -m pytest tests/` gives **111 passed** (110 + one JSON-validity case for the local result copy).
+
 ---
 
-## 8. File inventory
+## 8. Milestone 2b: classical pipeline improvements (2026-11-14)
+
+> **Status:** implemented and tested locally; notebook executed end to end on synthetic stand-in data. **Not yet run on Flowers-102** (needs Colab). No M2b results exist yet. The M2 run-2 result (test top-1 0.1197, macro-F1 0.1024) remains the official Milestone 2 baseline; M2b is reported separately.
+
+### 8.1 Why
+
+M2 showed the limit is the **features**: training accuracy ≈ 100 % in every SVM configuration against ≈ 14 % on validation (Section 7.7). Three weaknesses were identified:
+- HOG ignores colour.
+- It is a rigid spatial template.
+- The direct resize distorts aspect ratios.
+
+The user approved four quick feature-side improvements, tested as a validation-only ablation.
+
+### 8.2 What was implemented
+
+| Step | Change | Implementation |
+|---|---|---|
+| 0 | HOG only (re-scored with the M2b SVM grid) | reference |
+| 1 | **Square-root normalisation** | element-wise √ of the (non-negative) histogram features before standardising |
+| 2 | **HSV colour histograms** | `src/classical/color.py`, from scratch: RGB → HSV (matches Python's `colorsys` to 1e-12), joint 16 hue × 4 saturation histogram for the whole image + a 2 × 2 grid, each region L1-normalised → **320** values; appended to HOG; standardised colour columns multiplied by a weight w ∈ {1, 3, 5}, so 320 values are not swamped by 8,100 |
+| 3 | **Horizontal-flip augmentation** (training split only) | **exact, without re-extraction**: mirroring maps HOG block column j → bx−1−j, in-block cell column dx → b−1−dx and orientation bin k → n−1−k (bin centres are symmetric about 90°), and swaps the colour grid's columns. So the flipped image's features are a permutation of the cached ones (`hog.flip_permutation`, `color.flip_permutation`). Val/test are never augmented |
+| 4 | **Centre-crop resize** | `PreprocessConfig(resize_mode="center_crop")`: largest centred square, then resize to 128 × 128 (aspect ratio kept). New HOG and colour caches |
+
+**Protocol (greedy forward selection):**
+- Each step is added to the best pipeline so far and **kept only if it strictly raises validation macro-F1**.
+- Every recipe gets the same 6-configuration SVM grid: learning rate {1e-3, 1e-2} × λ {1e-4, 1, 10}, unweighted, 50 epochs, batch 128, decay 0.05, seed 42. The choice is based on M2 run 2, where unweighted was best and λ 10 rescued lr 1e-2.
+- The standardiser is fitted on the (possibly augmented) training matrix only.
+- **The selected pipeline is evaluated on test once.** All feature sets are extracted and cached before any tuning.
+
+**Engineering**
+- `features.py` was generalised to a `FeatureSpec` (HOG or colour). Caches are named `<kind>_<split>_<hash>.npz`.
+- **The HOG cache key is unchanged**: `hog_<split>_b5525eb6a0c2.npz` from M2 is reused, and a test pins this hash.
+- `PreprocessConfig.to_dict()` keeps the direct-mode description byte-identical for the same reason.
+- `experiment.py` holds `Recipe`, `build_design` (sqrt → concatenate → flip-augment train → standardise on train → weight colour), `transform_split` (test, no augmentation) and `svm_grid_search`.
+- `plots.py` gains `plot_ablation` and `plot_color_demo`.
+
+**Notebook** `notebooks/03_classical_improvements.ipynb` (no outputs; same Colab conventions as notebooks 01/02):
+1. Setup.
+2. Data and the 10 checks.
+3. Feature configuration.
+4. Extraction and caching of all 4 feature sets.
+5. Demonstrations: colour descriptor, direct vs centre crop, and a **flip check on real training images** (asserts < 1e-9).
+6. Ablation.
+7. Selected pipeline, with model, standardiser and recipe saved.
+8. Test once (a guard against a second run).
+9. Figures, and per-class F1 changes vs M2.
+10. Comparison with M2 run 2 and an Observations placeholder.
+
+| Output (Colab) | Location |
+|---|---|
+| New caches: `color_*` (direct), `hog_*`/`color_*` (centre crop) | `MyDrive/sibol/features/hog/` |
+| `m2b_best_svm.npz`, `m2b_standardizer.npz`, `m2b_recipe.json` | `MyDrive/sibol/checkpoints/` |
+| `m2b_results.json`, `m2b_ablation_steps.csv`, `m2b_ablation_grid.csv`, `m2b_test_per_class.csv`, `m2b_test_confusion_matrix.csv` | `MyDrive/sibol/outputs/metrics/` |
+| `m2b_ablation.png`, `m2b_color_demo.png`, `m2b_resize_modes.png`, `m2b_confusion_matrix.png`, `m2b_per_class_f1.png` | `MyDrive/sibol/outputs/figures/` |
+
+**Expected Colab time** (estimate from earlier Colab timings, not measured):
+- About 5 min of new feature extraction.
+- About 15–20 min of SVM training: 7 recipes × 6 configurations at about 17 s, doubled for recipes with flip.
+
+### 8.3 Validation performed (local)
+
+| Validation | Result |
+|---|---|
+| `py -3.12 -m pytest tests/` | **141 passed**: HOG 24, SVM 20, preprocessing 18, features 13, experiment 10, colour 8, evaluation 5, dataset helpers 22, notebooks 21 |
+| Colour | HSV equals `colorsys` (incl. black, white, grey, pure red/blue); regions sum to 1; pure colours land in the expected bins; the spatial grid separates left/right; flip permutation exact for 3 configurations |
+| HOG flip | HOG of the mirrored image equals the permuted HOG (atol 1e-9) for the M2 configuration and another one; the permutation is a self-inverse permutation; asymmetric tilings are rejected |
+| Preprocessing | centre-crop box arithmetic; crop removes the ends of the long side; grayscale path unchanged by the refactor; **M2 HOG cache hash still `b5525eb6a0c2`** |
+| Experiment | flip doubles train only; the standardiser is fitted on augmented train only; sqrt and colour weight applied as specified; `transform_split` reproduces the design for val; real-image flip end to end (HOG + colour); grid search returns the best-key configuration |
+| **Notebook 03 executed locally** on the synthetic stand-in dataset (official split sizes, 3 epochs) | all 28 cells ran; M2 HOG cache loaded, new caches created with distinct keys; flip check 3.9e-16; ablation, test, figures and comparison table all produced. The numbers come from fake data and are **not results**. Flip even hurt there, as expected: mirroring changes the stripe angle, which is the fake classes' only signal |
+
+**Not verified locally:** anything on real flower images (no torchvision or dataset here). **The M2b Colab run is required.**
+
+### 8.4 Files affected
+
+| File | Change |
+|---|---|
+| `src/classical/color.py`, `src/classical/experiment.py` | New |
+| `src/classical/preprocessing.py` | `resize_mode` (`direct` / `center_crop`), `center_square_box`, `preprocess_rgb` |
+| `src/classical/hog.py` | `flip_permutation` |
+| `src/classical/features.py` | Generalised to `FeatureSpec` (HOG / colour); M2 API and cache keys unchanged |
+| `src/evaluation/plots.py` | `plot_ablation`, `plot_color_demo` |
+| `src/classical/__init__.py` | Module list |
+| `tests/test_color.py`, `tests/test_experiment.py` | New |
+| `tests/test_hog.py`, `test_preprocessing.py`, `test_evaluation.py` | New cases (flip, centre crop, pinned cache hash, new plots) |
+| `notebooks/03_classical_improvements.ipynb` | New, without outputs |
+| `README.md`, `Documentation.md` | Status, structure, roadmap; this section |
+
+Notebook 02, the dataset loader and the official splits were not changed. Nothing was committed or pushed.
+
+---
+
+## 9. File inventory
 
 | File / folder | Purpose | Tracked |
 |---|---|---|
@@ -396,13 +526,15 @@ Grid rationale: over 100 epochs with decay 0.05 and about 8 mini-batches per epo
 | `notebooks/00_environment_setup.ipynb` | Environment and GPU diagnostics, Drive mount | Yes |
 | `notebooks/01_dataset_exploration_sibol.ipynb` | Prepares, verifies (10 checks) and explores the dataset | Yes |
 | `notebooks/archive/01_dataset_exploration_sibol_run_2026-11-11.ipynb` | Record of the 2026-11-11 run (do not run) | Yes |
-| `notebooks/01_dataset_exploration_sibol_result.ipynb` | Executed copy of the 2026-11-14 Colab run, with figures | **No** (git-ignored, local only) |
+| `notebooks/01_dataset_exploration_sibol_run_1_result.ipynb` | Executed copy of the 2026-11-14 Colab run, with figures | **No** (git-ignored, local only) |
+| `notebooks/02_hog_svm_run_1_result.ipynb`, `02_hog_svm_run_2_result.ipynb` | Executed copies of the two M2 Colab runs | **No** (git-ignored, local only) |
 | `src/data/flowers102.py` | Dataset preparation, loading and integrity checks | Yes |
 | `notebooks/02_hog_svm.ipynb` | Milestone 2: HOG + linear SVM, train / validate / test | Yes |
-| `src/classical/` | Preprocessing, HOG, linear SVM, feature cache | Yes |
+| `notebooks/03_classical_improvements.ipynb` | Milestone 2b: validation ablation of colour, sqrt, flip, centre crop | Yes |
+| `src/classical/` | Preprocessing, HOG, colour histograms, linear SVM, feature cache, M2b ablation | Yes |
 | `src/evaluation/` | Metrics, result files and figures (shared by all models) | Yes |
 | `src/models/`, `src/app/` | Empty packages for later milestones | Yes |
-| `tests/` | 110 unit, pipeline and hygiene tests | Yes |
+| `tests/` | 141 unit, pipeline and hygiene tests | Yes |
 | `docs/dataset_exploration_report.md` | Written findings from Phase 2 | Yes |
 | `outputs/figures/*.png` | 4 exploration figures (2.47 MB total; largest `sample_images.png`, 1.72 MB) | Yes |
 | `outputs/metrics/` | Empty, for future results | Yes (`.gitkeep`) |
@@ -416,14 +548,14 @@ Grid rationale: over 100 epochs with decay 0.05 and about 8 mini-batches per epo
 | `/content/flowers102/flowers-102/` (Colab) | Extracted `jpg/` + copies of the two `.mat` files | Deleted when the runtime ends |
 | `MyDrive/sibol/outputs/figures/` | Figures from Colab runs | Persistent |
 | `MyDrive/sibol/outputs/metrics/` | Metric files from Colab runs | Persistent |
-| `MyDrive/sibol/features/hog/` | HOG feature cache, one `.npz` per split (~265 MB) | Persistent |
+| `MyDrive/sibol/features/hog/` | Feature caches: M2 HOG (~265 MB); M2b adds colour (direct and centre crop, ~10 MB each) and centre-crop HOG (~265 MB) | Persistent |
 | `MyDrive/sibol/checkpoints/` | `hog_svm_best.npz`, `hog_svm_standardizer.npz` (run 1); `hog_svm_run2_*` (run 2) | Persistent |
 | `<project>/features/`, `<project>/checkpoints/` (local) | Same, for local runs | Persistent, git-ignored |
 | `<project>/data/` (local, optional) | Same three source files; `data/extracted/` for images | Persistent, git-ignored |
 
 ---
 
-## 9. Environment notes
+## 10. Environment notes
 
 ### Local machine (Windows 11)
 
@@ -440,17 +572,18 @@ Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalle
 
 ---
 
-## 10. Known issues and open items
+## 11. Known issues and open items
 
 | # | Issue | Impact | Suggested fix |
 |---|---|---|---|
-| 1 | Local Python environments are incomplete (Section 9) | The dataset cannot be loaded locally; local tests run on Python 3.12 only | Create a project virtual environment (commands in `README.md`) |
+| 1 | Local Python environments are incomplete (Section 10) | The dataset cannot be loaded locally; local tests run on Python 3.12 only | Create a project virtual environment (commands in `README.md`) |
 | 2 | Working notebooks must be committed without embedded images | `tests/test_notebooks.py` fails if a Colab-saved notebook with images is committed | Clear outputs before committing (Edit → Clear all outputs), or save the executed copy as `notebooks/<name>_result.ipynb`, which is git-ignored |
 | 3 | Helpers read torchvision's private `_labels` / `_image_files` | A future torchvision could rename them | Label reading has a fallback; if file names disappear, the disjointness check fails loudly instead of passing silently |
 | 4 | `sample_images.png` (1.72 MB) is the largest tracked file | Small repository growth | Acceptable; future figures should stay under about 2 MB |
 | 5 | 6% of sampled images have a shorter side above 500 px; their exact sizes were not measured | None for the plan: every pipeline resizes anyway | Optional: print the non-500 sizes, or measure all 8,189 images |
-| 6 | The SVM's λ grid (1e-4–1e-2) is too small to regularise; the model over-fits (train ≈ 1.0, val ≤ 0.14) and the objective had not converged at 50 epochs | The reported M2 result reflects implicit early stopping, not a tuned L2 penalty | Addressed by run 2 (Section 7.6); pending its Colab run |
-| 7 | The notebook's Section 12 "Observations" cell is still a placeholder | The tracked notebook does not yet state the findings | Fill it from Section 7.5 once the final M2 run is decided |
+| 6 | The SVM's λ grid (1e-4–1e-2) is too small to regularise; the model over-fits (train ≈ 1.0, val ≤ 0.14) and the objective had not converged at 50 epochs | The reported M2 result reflects implicit early stopping, not a tuned L2 penalty | Resolved by run 2: λ now shrinks the weights, but stronger regularisation did not improve validation (Section 7.7) |
+| 7 | Validation accuracy is capped near 14 % with training accuracy ≈ 100 % | HOG on grayscale 128 × 128 images is the limiting factor | Being addressed by M2b (Section 8); Colab run pending |
+| 11 | M2b uses greedy selection on 1,020 validation images | Small, noisy validation gains can decide which steps are kept | Report all step scores (the ablation table), not only the selected pipeline; treat sub-0.005 differences with caution |
 | 8 | Direct 128 × 128 resize distorts aspect ratios (0.58–1.71) | Shapes are stretched, which may weaken HOG features | Accepted for M2; could be revisited in a later ablation |
 | 9 | HOG ignores colour | Classes that differ mainly in colour cannot be separated | Inherent to the M2 design; worth discussing in the comparison with the CNNs |
 | 10 | Outputs written to Drive do not reach the repository automatically | Tracked `outputs/metrics` and `outputs/figures` stay without M2 files until copied | After the run, copy the small JSON/CSV/PNG files into the repository if they should be versioned |
@@ -461,17 +594,16 @@ Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalle
 
 ---
 
-## 11. Next steps
+## 12. Next steps
 
-1. **You:** review and commit/push the run-2 changes (`notebooks/02_hog_svm.ipynb`, `src/classical/linear_svm.py`, `tests/test_linear_svm.py`, `Documentation.md`).
-2. **Run `notebooks/02_hog_svm.ipynb` in Colab** (CPU runtime, **Runtime → Run all**; run `!rm -rf /content/sibol` first if an older clone exists in the runtime). The HOG cache from run 1 is reused, so the run takes about 15 minutes, mostly the grid.
-3. Save the executed copy as `notebooks/02_hog_svm_result.ipynb` (this overwrites the run-1 copy; rename that one first, e.g. `02_hog_svm_run1_result.ipynb`, if you want to keep it locally) and share it, so run 2's numbers can be recorded here and in the notebook's Observations.
-4. Optionally copy the small result files and figures of the final run from Drive into `outputs/`.
-5. Then Milestone 3: custom CNN.
+1. **You:** confirm M2 run 2 as the final M2 result (Section 7.7), then review and commit/push the M2b changes (Section 8.4).
+2. **Run `notebooks/03_classical_improvements.ipynb` in Colab:** CPU runtime; `!rm -rf /content/sibol` first if an older clone exists in the runtime; **Runtime → Run all**. Save the executed copy as `notebooks/03_classical_improvements_result.ipynb` (the `_result.ipynb` ending keeps it out of git).
+3. Share the result so the M2b numbers, ablation table and observations can be recorded here and in the notebook.
+4. Then **Milestone 3: custom CNN**.
 
 ---
 
-## 12. Change history
+## 13. Change history
 
 | Date | Change |
 |---|---|
@@ -483,3 +615,5 @@ Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalle
 | 2026-11-14 | Milestone 2 implementation: from-scratch NumPy HOG (8,100 features, L2-Hys) and one-vs-rest hinge-loss linear SVM (L2 on weights only, optional positive weighting, seeded mini-batch SGD); train-only standardiser; validated split-aware HOG cache; shared evaluation metrics/plots; notebook 02; tests 31 → 108. Notebook executed end to end locally on a synthetic stand-in dataset (fixed a test-split memory spike). **No Flowers-102 training or results yet.** Not committed. |
 | 2026-11-14 | Milestone 2 committed and pushed by the user (`d77bff2`). First Colab run: 10/10 checks, features cached (~265 MB), 18-configuration grid in 5.4 min; selected unweighted, lr 1e-3; **test top-1 0.1195, macro-F1 0.0993**, val top-1 0.1422, macro-F1 0.1200; 826,302 parameters. Found that the λ range had no effect (strong over-fitting; objective not converged). Recorded in Section 7.5. |
 | 2026-11-14 | Milestone 2 run 2 prepared (Option B): λ grid widened to {1e-4, 1e-2, 0.1, 1, 10}, learning rates {1e-3, 1e-2}, 100 epochs, 20 configurations; ‖W‖ and convergence diagnostics; run-tagged output files (`hog_svm_run2_*`); run-1 comparison table; `TrainingHistory.relative_change`; tests 108 → 110. Notebook smoke-tested locally on synthetic data. Not committed. |
+| 2026-11-14 | Milestone 2 run 2 executed in Colab (`c9a5d33`): λ now shrinks the weights but did not improve validation; same configuration selected as in run 1; **test top-1 0.1197, macro-F1 0.1024** (run 1: 0.1195, 0.0993). Proposed as the final M2 result. Notebook Observations filled. Result notebook renamed to `02_hog_svm_run_2_result.ipynb` so git ignores it. Not committed. |
+| 2026-11-14 | Milestone 2b implemented: from-scratch HSV colour histograms (320 values), square-root normalisation, exact flip augmentation by feature permutation (HOG and colour), centre-crop resize; generic feature cache (`FeatureSpec`) with the M2 HOG cache key unchanged; greedy validation-only ablation notebook 03; tests 111 → 141. Notebook executed end to end locally on synthetic data. **No M2b results yet.** Not committed. |
