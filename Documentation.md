@@ -5,7 +5,7 @@
 
 This file is the running record of all work on the project: what changed, why, which files were affected, how the change was validated, the results, known issues and next steps. It is **rewritten after every project change** so it always describes the current state. Earlier changes are summarised in the [Change history](#12-change-history).
 
-**Last updated:** 2026-11-14 (Milestone 2 implementation)
+**Last updated:** 2026-11-14 (Milestone 2: run 2 prepared)
 
 ---
 
@@ -28,14 +28,14 @@ This file is the running record of all work on the project: what changed, why, w
 | 2. Dataset acquisition and exploration | Done (2026-11-11); all 10 split checks passed |
 | 2b. Infrastructure stabilisation | Done (2026-11-14); pushed to `origin/main` |
 | 2c. Fresh-session Colab confirmation run | Done (2026-11-14); 10/10 checks passed, all Phase 2 results reproduced |
-| 3. Milestone 2: classical pipeline (HOG + linear SVM) | **Implemented and unit-tested locally** (2026-11-14). **Training/evaluation on Flowers-102 not yet run** (needs Colab) |
+| 3. Milestone 2: classical pipeline (HOG + linear SVM) | Implemented and tested (2026-11-14); **first Colab run done**: test top-1 0.1195, macro-F1 0.0993 (Section 7.5). Regularisation grid found ineffective; **run 2 (wider λ grid) prepared, waiting for the Colab run** (Section 7.6) |
 | 4. Custom CNN | Not started |
 | 5. ResNet-18 transfer learning | Not started |
 | 6. Evaluation and comparison | Not started |
 | 7. Gradio web app | Not started |
 | 8. Final report | Not started |
 
-The HOG + linear SVM model is implemented but has **not been trained on Flowers-102**. **No classification results exist yet.**
+First classification results exist for HOG + linear SVM only (Section 7.5). No other model has been implemented.
 
 ---
 
@@ -215,7 +215,7 @@ The executed copy is kept locally as `notebooks/01_dataset_exploration_sibol_res
 
 ## 7. Milestone 2: HOG + linear SVM implementation (2026-11-14)
 
-> **Status:** implemented and tested locally. **The model has not been trained or evaluated on Flowers-102**; that requires the Colab run (Section 11). No experimental results are reported here.
+> **Status:** implemented and tested locally (7.1–7.4); first Colab training and evaluation run in 7.5.
 
 ### 7.1 What changed and why
 
@@ -305,6 +305,84 @@ No ready-made HOG or SVM is used. scikit-learn is used only for metrics. No new 
 
 `src/data/flowers102.py`, the official splits, notebooks 00/01, `.gitignore` and `requirements.txt` were **not changed**. Nothing was committed or pushed.
 
+### 7.5 First Colab run (2026-11-14, commit `d77bff2`)
+
+**What happened:** `notebooks/02_hog_svm.ipynb` ran end to end with **Runtime → Run all** in Colab (Python 3.13, NumPy 2.4.6, scikit-learn 1.6.1), with no errors. The executed copy is kept locally as `notebooks/02_hog_svm_result.ipynb` (git-ignored, 1.3 MB; scanned, and it contains no tokens, keys or email addresses). The results files were written to Drive (`MyDrive/sibol/outputs/metrics/`, `outputs/figures/`, `checkpoints/`, `features/hog/`); they are **not** in the repository yet.
+
+**Data checks:** MD5 OK for all three source files; 10/10 integrity checks passed; splits disjoint with the official sizes; all 8,189 feature vectors finite; caches reloaded and matched (config hash `b5525eb6a0c2`); standardiser fitted on the 1,020 training images only.
+
+**Results (actual, from this run)**
+
+| Metric | Validation (1,020) | Test (6,149) |
+|---|---:|---:|
+| Top-1 accuracy | 0.1422 | **0.1195** |
+| Macro precision | 0.1354 | 0.1067 |
+| Macro recall | 0.1422 | 0.1409 |
+| Macro-F1 | 0.1200 | **0.0993** |
+
+Chance level is about 0.0098 (1/102). Selected configuration: unweighted, learning rate 0.001, λ = 1e-4 (first in grid order of three identical λ results), 50 epochs, batch 128. Learned parameters: **826,302**.
+
+| Cost | Value |
+|---|---|
+| HOG extraction (decode + resize + grayscale + HOG) | train 10.7 s, val 12.0 s, test 68.1 s (≈ 11 ms per image) |
+| HOG computation alone | 6.30 ms per image |
+| SVM training, selected configuration | 17.6 s |
+| Validation grid, 18 configurations | 5.4 min |
+| SVM inference (standardise + 102 scores + argmax) | 191 µs per image |
+
+**Validation grid (val macro-F1; λ had no effect, so one value per row)**
+
+| Positive weight | lr 1e-4 | lr 1e-3 | lr 1e-2 |
+|---|---:|---:|---:|
+| None | 0.086 | **0.120** | 0.048–0.054 |
+| balanced | 0.115 | 0.104 | 0.038–0.039 |
+
+**Observations**
+
+1. **The pipeline works, but accuracy is low:** 11.95 % test top-1 (about 12× chance), macro-F1 0.099. Per-class test F1 ranges from 0 (for example pink primrose, canterbury bells, english marigold, monkshood, peruvian lily) to 0.42 (bearded iris; then sunflower 0.38, hippeastrum 0.37).
+2. **Severe over-fitting:** training accuracy 0.94–1.00 for every configuration against validation accuracy of at most 0.14. With 8,100 features and 1,020 images, the training set is close to linearly separable.
+3. **λ had no measurable effect.** For learning rates 1e-4 and 1e-3, all three λ values gave identical metrics. Cause: the shrinkage per step is η·λ ≤ 1e-3 × 1e-2 = 1e-5, over about 400 steps, so the L2 term barely acts. The grid's λ range (1e-4–1e-2) is far too small for this problem; in practice, **regularisation came only from the learning rate and the fixed 50 epochs (implicit early stopping)**. This confirms known issue 9 (grid range not tuned to the real data).
+4. **The training objective was still falling at epoch 50** (0.99 → 0.77 for the selected configuration), so the optimisation had not converged.
+5. **Balanced positive weighting did not help:** best balanced validation macro-F1 0.115 vs 0.120 unweighted. It was better only at the smallest learning rate.
+6. **Test is lower than validation** (top-1 0.120 vs 0.142). Test macro recall (0.141) is higher than test accuracy (0.120), so the model does worse on the large test classes than on the small ones.
+7. The test confusion matrix has a visible diagonal, plus a few columns that attract predictions from many classes.
+8. The HOG illustration shows the expected behaviour: the gradient magnitude follows the petal outlines, and the cell histograms align with them. Colour, which separates many Flowers-102 classes, is discarded by design.
+
+**Protocol note:** this run is the specified M2 configuration and is the reference result. The test split has now been evaluated once. Any further tuning (for example a wider λ range) must be motivated and selected on **validation only** (observation 3 is a validation-side finding), and it must be recorded as a second, separate run.
+
+### 7.6 Run 2 preparation: wider regularisation grid (2026-11-14)
+
+**Why:** in run 1, λ (1e-4 to 1e-2) had no measurable effect on the **validation** results: the shrinkage per step, η·λ ≤ 1e-5, could not regularise. The decision (Option B) was to repeat the search with λ values that act, keeping everything else fixed. The reason comes from the validation results, not from the test score.
+
+**What changed**
+
+| Item | Run 1 | Run 2 |
+|---|---|---|
+| λ | 1e-4, 1e-3, 1e-2 | **1e-4, 1e-2, 0.1, 1, 10** (1e-4 kept as the run-1 reference) |
+| Learning rate | 1e-4, 1e-3, 1e-2 | **1e-3, 1e-2** (1e-4 dropped: worst unweighted; η·λ ≤ 0.1 keeps every step stable) |
+| Positive weight | None, balanced | None, balanced (unchanged) |
+| Configurations | 18 | **20** |
+| Epochs | 50 | **100** |
+| Diagnostics | none | ‖W‖ per configuration; relative change of the objective over the last 10 epochs; a note if the selected λ is at a grid edge |
+| Output files | `hog_svm_*` | `hog_svm_run2_*` (run 1's files are kept) |
+| Unchanged | | HOG and preprocessing configuration (the cached features are reused, hash `b5525eb6a0c2`), splits, train-only standardiser, selection by validation macro-F1, single test evaluation per run |
+
+Grid rationale: over 100 epochs with decay 0.05 and about 8 mini-batches per epoch, Σηₜ ≈ 290 × learning rate. So the total shrinkage λ·Σηₜ ranges from about 3e-4 (run-1-like) to about 29 (strong) across the grid. A local stability check on random data of the real size confirmed finite weights and a ‖W‖ that shrinks as λ grows; it took about 30 s per configuration at 100 epochs. The expected Colab time is about 12 minutes for the grid, extrapolated from run 1's 17.6 s per 50 epochs; this is an estimate, not a measurement.
+
+**Files affected**
+
+| File | Change |
+|---|---|
+| `src/classical/linear_svm.py` | `TrainingHistory.relative_change(window)` (convergence diagnostic) |
+| `tests/test_linear_svm.py` | Test for it (tests: 108 → **110**, all passing) |
+| `notebooks/02_hog_svm.ipynb` | Rewritten for run 2: intro explains run 1 → run 2; `RUN_TAG = "run2"` and the `hog_svm_run2_*` file names; new grid and epochs; diagnostics in the grid table; edge and convergence notes in Section 9; a run-1 vs run-2 comparison table read from run 1's results file; Observations cell records run 1's actual findings and leaves run 2 to be written after the run. Still committed without outputs |
+
+**Validation:** `py -3.12 -m pytest tests/` gives **110 passed**. The whole notebook was executed locally against the synthetic stand-in dataset (3 epochs): all cells ran, the cached features were reused, `hog_svm_run2_*` files were written next to the earlier files without overwriting them, and the comparison table was printed. Two problems found and fixed during preparation:
+- A rename step had also renamed run 1's results file in the config; it was restored to `hog_svm_results.json`.
+- The grid-edge note fired for every choice when the learning-rate grid has only 2 values; it is now limited to λ (and to learning-rate grids of 3 or more values).
+
+**Protocol note:** run 2 evaluates the test split a second time. Both runs are reported; run 2 is not selected because of its test score.
+
 ---
 
 ## 8. File inventory
@@ -324,7 +402,7 @@ No ready-made HOG or SVM is used. scikit-learn is used only for metrics. No new 
 | `src/classical/` | Preprocessing, HOG, linear SVM, feature cache | Yes |
 | `src/evaluation/` | Metrics, result files and figures (shared by all models) | Yes |
 | `src/models/`, `src/app/` | Empty packages for later milestones | Yes |
-| `tests/` | 108 unit, pipeline and hygiene tests | Yes |
+| `tests/` | 110 unit, pipeline and hygiene tests | Yes |
 | `docs/dataset_exploration_report.md` | Written findings from Phase 2 | Yes |
 | `outputs/figures/*.png` | 4 exploration figures (2.47 MB total; largest `sample_images.png`, 1.72 MB) | Yes |
 | `outputs/metrics/` | Empty, for future results | Yes (`.gitkeep`) |
@@ -339,7 +417,7 @@ No ready-made HOG or SVM is used. scikit-learn is used only for metrics. No new 
 | `MyDrive/sibol/outputs/figures/` | Figures from Colab runs | Persistent |
 | `MyDrive/sibol/outputs/metrics/` | Metric files from Colab runs | Persistent |
 | `MyDrive/sibol/features/hog/` | HOG feature cache, one `.npz` per split (~265 MB) | Persistent |
-| `MyDrive/sibol/checkpoints/` | `hog_svm_best.npz`, `hog_svm_standardizer.npz` | Persistent |
+| `MyDrive/sibol/checkpoints/` | `hog_svm_best.npz`, `hog_svm_standardizer.npz` (run 1); `hog_svm_run2_*` (run 2) | Persistent |
 | `<project>/features/`, `<project>/checkpoints/` (local) | Same, for local runs | Persistent, git-ignored |
 | `<project>/data/` (local, optional) | Same three source files; `data/extracted/` for images | Persistent, git-ignored |
 
@@ -371,10 +449,10 @@ Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalle
 | 3 | Helpers read torchvision's private `_labels` / `_image_files` | A future torchvision could rename them | Label reading has a fallback; if file names disappear, the disjointness check fails loudly instead of passing silently |
 | 4 | `sample_images.png` (1.72 MB) is the largest tracked file | Small repository growth | Acceptable; future figures should stay under about 2 MB |
 | 5 | 6% of sampled images have a shorter side above 500 px; their exact sizes were not measured | None for the plan: every pipeline resizes anyway | Optional: print the non-500 sizes, or measure all 8,189 images |
-| 6 | **M2 not yet trained or evaluated on Flowers-102** | No HOG + SVM results exist | Run `notebooks/02_hog_svm.ipynb` in Colab (Section 11) |
-| 7 | Colab clones from GitHub, but the M2 code is not pushed yet | Notebook 02 stops at Section 1.3 with a message | Commit and push first, or copy the project to Drive and set `CODE_DIR_COLAB` |
+| 6 | The SVM's λ grid (1e-4–1e-2) is too small to regularise; the model over-fits (train ≈ 1.0, val ≤ 0.14) and the objective had not converged at 50 epochs | The reported M2 result reflects implicit early stopping, not a tuned L2 penalty | Addressed by run 2 (Section 7.6); pending its Colab run |
+| 7 | The notebook's Section 12 "Observations" cell is still a placeholder | The tracked notebook does not yet state the findings | Fill it from Section 7.5 once the final M2 run is decided |
 | 8 | Direct 128 × 128 resize distorts aspect ratios (0.58–1.71) | Shapes are stretched, which may weaken HOG features | Accepted for M2; could be revisited in a later ablation |
-| 9 | HOG ignores colour; the validation-grid ranges were chosen from a synthetic stability check, not from flower data | The best setting may sit on the edge of the grid | If the selected λ or learning rate is at a grid edge, extend the grid (validation only) and record it |
+| 9 | HOG ignores colour | Classes that differ mainly in colour cannot be separated | Inherent to the M2 design; worth discussing in the comparison with the CNNs |
 | 10 | Outputs written to Drive do not reach the repository automatically | Tracked `outputs/metrics` and `outputs/figures` stay without M2 files until copied | After the run, copy the small JSON/CSV/PNG files into the repository if they should be versioned |
 
 **Resolved in Phase 2c:** repository pushed (`origin/main`); the rewritten notebook was confirmed by a fresh-session Colab run.
@@ -385,10 +463,10 @@ Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalle
 
 ## 11. Next steps
 
-1. **You:** review the Milestone 2 changes (Section 7.4), then commit and push them (Claude does not commit or push). Colab needs the pushed code.
-2. **Run `notebooks/02_hog_svm.ipynb` in Colab:** use a CPU runtime (no GPU needed), then **Runtime → Run all**. If `/content/sibol` exists from an earlier session in the same runtime, run `!rm -rf /content/sibol` first. The first run extracts HOG features (several minutes) and caches them on Drive; later runs reuse them.
-3. Save the executed copy as `notebooks/02_hog_svm_result.ipynb` (git-ignored), and share the printed outputs so the notebook's Section 12 ("Observations") and this file can be filled in with the **actual** numbers.
-4. If the selected hyperparameters lie on a grid edge, extend the grid and re-run (validation only; the test section runs once per session).
+1. **You:** review and commit/push the run-2 changes (`notebooks/02_hog_svm.ipynb`, `src/classical/linear_svm.py`, `tests/test_linear_svm.py`, `Documentation.md`).
+2. **Run `notebooks/02_hog_svm.ipynb` in Colab** (CPU runtime, **Runtime → Run all**; run `!rm -rf /content/sibol` first if an older clone exists in the runtime). The HOG cache from run 1 is reused, so the run takes about 15 minutes, mostly the grid.
+3. Save the executed copy as `notebooks/02_hog_svm_result.ipynb` (this overwrites the run-1 copy; rename that one first, e.g. `02_hog_svm_run1_result.ipynb`, if you want to keep it locally) and share it, so run 2's numbers can be recorded here and in the notebook's Observations.
+4. Optionally copy the small result files and figures of the final run from Drive into `outputs/`.
 5. Then Milestone 3: custom CNN.
 
 ---
@@ -403,3 +481,5 @@ Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalle
 | 2026-11-14 | Phase 2b: infrastructure stabilisation. Git initialised with a reviewed initial commit (not pushed); `.gitignore` rewritten and root-anchored (fixed `src/data/` being ignored); `.gitattributes` added; dataset helper rewritten so loading never downloads and `DOWNLOAD=True` is the only download path; notebook rewritten for fresh Colab sessions with explicit Drive mount, config-driven paths, MD5-verified source files, extraction to temporary disk and a stop on failed checks; 2026-11-11 run archived as a 34 KB record; superseded scaffold notebook removed; tests expanded from 9 to 30. |
 | 2026-11-14 | Phase 2c: fresh-session Colab run confirmed 10/10 checks and all Phase 2 numbers. Corrected "shorter side 500 px in every image" to 94% and listed all 7 tied smallest test classes (notebook Section 13, report, this file). `.gitignore` now excludes `notebooks/*_result.ipynb`; notebook hygiene tests skip those copies. Not committed. |
 | 2026-11-14 | Milestone 2 implementation: from-scratch NumPy HOG (8,100 features, L2-Hys) and one-vs-rest hinge-loss linear SVM (L2 on weights only, optional positive weighting, seeded mini-batch SGD); train-only standardiser; validated split-aware HOG cache; shared evaluation metrics/plots; notebook 02; tests 31 → 108. Notebook executed end to end locally on a synthetic stand-in dataset (fixed a test-split memory spike). **No Flowers-102 training or results yet.** Not committed. |
+| 2026-11-14 | Milestone 2 committed and pushed by the user (`d77bff2`). First Colab run: 10/10 checks, features cached (~265 MB), 18-configuration grid in 5.4 min; selected unweighted, lr 1e-3; **test top-1 0.1195, macro-F1 0.0993**, val top-1 0.1422, macro-F1 0.1200; 826,302 parameters. Found that the λ range had no effect (strong over-fitting; objective not converged). Recorded in Section 7.5. |
+| 2026-11-14 | Milestone 2 run 2 prepared (Option B): λ grid widened to {1e-4, 1e-2, 0.1, 1, 10}, learning rates {1e-3, 1e-2}, 100 epochs, 20 configurations; ‖W‖ and convergence diagnostics; run-tagged output files (`hog_svm_run2_*`); run-1 comparison table; `TrainingHistory.relative_change`; tests 108 → 110. Notebook smoke-tested locally on synthetic data. Not committed. |

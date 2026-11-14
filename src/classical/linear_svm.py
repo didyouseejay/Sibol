@@ -106,6 +106,18 @@ class TrainingHistory:
     learning_rate: list = field(default_factory=list)
     fit_seconds: float = 0.0
 
+    def relative_change(self, window: int = 10) -> float:
+        """Relative decrease of the objective over the last ``window`` epochs.
+
+        ``(J[-window-1] - J[-1]) / |J[-1]|``. Close to 0 means training has
+        levelled off; a large value means it was still improving (not converged).
+        Returns NaN if fewer than ``window + 1`` epochs were recorded.
+        """
+        if len(self.objective) <= window:
+            return float("nan")
+        old, new = self.objective[-window - 1], self.objective[-1]
+        return float((old - new) / max(abs(new), 1e-12))
+
 
 class LinearSVMOvR:
     """One-vs-rest linear SVM with hinge loss and L2 regularisation (NumPy)."""

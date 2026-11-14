@@ -63,6 +63,15 @@ def test_objective_decreases():
     assert obj[0] < 1.0
 
 
+def test_relative_change_measures_convergence():
+    from src.classical.linear_svm import TrainingHistory
+
+    h = TrainingHistory(objective=[2.0, 1.5, 1.2, 1.0])
+    assert h.relative_change(window=2) == pytest.approx((1.5 - 1.0) / 1.0)
+    assert np.isnan(h.relative_change(window=4))      # needs window + 1 recorded epochs
+    assert TrainingHistory(objective=[1.0] * 12).relative_change(10) == 0.0
+
+
 def test_full_batch_gradient_matches_finite_differences():
     """The update rule must be the gradient of the documented objective (away from hinge kinks)."""
     rng = np.random.default_rng(1)
