@@ -2,7 +2,7 @@
 
 **Project:** SIBOL — A Comparative Study of Classical Machine Learning and Deep Learning Approaches for Flower Image Classification
 **Notebook (run record):** [`notebooks/archive/01_dataset_exploration_sibol_run_2026-11-11.ipynb`](../notebooks/archive/01_dataset_exploration_sibol_run_2026-11-11.ipynb). The current, fixed notebook is [`notebooks/01_dataset_exploration_sibol.ipynb`](../notebooks/01_dataset_exploration_sibol.ipynb).
-**Run date:** 2026-11-11
+**Run date:** 2026-11-11; all results re-confirmed by a fresh-session Colab run of the fixed notebook on 2026-11-14 (code commit `20f73a4`)
 **Environment:** Google Colab, dataset extracted to `/content/data/flowers-102`, loaded with `torchvision.datasets.Flowers102`
 
 All numbers in this report come directly from that run's outputs. No models were trained. The run used an earlier version of the notebook. Its two workarounds (a hand-written helper and a silent metadata download) were removed on 2026-11-14; see Section 3 and `Documentation.md`.
@@ -63,7 +63,7 @@ Figure: `outputs/figures/class_distribution.png`
 | Val | 1,020 | 10 | 10 | 10.0 |
 | Test | 6,149 | 20 | 238 | 60.3 |
 
-Smallest test classes: 20 images each, including pink primrose, canterbury bells, moon orchid, fire lily and prince of wales feathers. (The run printed 5 classes at the minimum; other classes may share that count.)
+Smallest test classes: seven classes are tied at 20 images each: pink primrose, canterbury bells, moon orchid, fire lily, prince of wales feathers, mexican aster and bolero deep blue. (The 2026-11-11 run printed only 5 of them; the 2026-11-14 run lists every tied class.)
 Largest test classes: petunia (238), passion flower (231), wallflower (176), water lily (174), watercress (164).
 
 **What this means for the study:**
@@ -93,7 +93,7 @@ Figure: `outputs/figures/image_sizes.png` (300 random training images, seed 42)
 | Height (px) | 500 | 500 | 861 |
 | Aspect ratio (w/h) | 0.58 | 1.33 | 1.71 |
 
-In the scatter plot every sampled image has its **shorter side equal to 500 px**. Landscape images are 500 px tall and portrait images are 500 px wide. Most sampled images are landscape (median aspect ratio 1.33).
+The **shorter side is exactly 500 px in 94%** of sampled images (printed by the 2026-11-14 run): landscape images are 500 px tall and portrait images are 500 px wide. The other 6% (about 18 images) have a shorter side above 500 px. In the scatter plot they cannot be told apart from the 500 px lines, so the excess appears small, but it was not measured. (An earlier version of this report said *every* sampled image had a 500 px shorter side; that was read from the plot and is corrected here.) Most sampled images are landscape (median aspect ratio 1.33).
 
 **Preprocessing considerations** (decisions are still to be made):
 - Images vary in size, but HOG needs a fixed input size to produce fixed-length feature vectors, and the CNNs are trained on fixed-size batches. Every pipeline therefore needs a resize step.

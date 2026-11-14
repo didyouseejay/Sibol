@@ -3,7 +3,7 @@
 **SIBOL: System for Image-Based Observation and Learning**
 *A Comparative Study of Classical Machine Learning and Deep Learning Approaches for Flower Image Classification*
 
-This file is the running record of all work on the project: what changed, why, which files were affected, how the change was validated, the results, known issues and next steps. It is **rewritten after every project change** so it always describes the current state. Earlier changes are summarised in the [Change history](#10-change-history).
+This file is the running record of all work on the project: what changed, why, which files were affected, how the change was validated, the results, known issues and next steps. It is **rewritten after every project change** so it always describes the current state. Earlier changes are summarised in the [Change history](#11-change-history).
 
 **Last updated:** 2026-11-14
 
@@ -26,8 +26,9 @@ This file is the running record of all work on the project: what changed, why, w
 |---|---|
 | 1. Project scaffolding | Done (2026-11-11) |
 | 2. Dataset acquisition and exploration | Done (2026-11-11); all 10 split checks passed |
-| 2b. Infrastructure stabilisation | Done locally (2026-11-14). **Awaiting:** push approval, and one fresh-session Colab run to confirm |
-| 3. Milestone 2: classical pipeline (HOG + linear SVM) | Not started (waiting for approval) |
+| 2b. Infrastructure stabilisation | Done (2026-11-14); pushed to `origin/main` |
+| 2c. Fresh-session Colab confirmation run | Done (2026-11-14); 10/10 checks passed, all Phase 2 results reproduced |
+| 3. Milestone 2: classical pipeline (HOG + linear SVM) | Not started (ready to start after approval) |
 | 4. Custom CNN | Not started |
 | 5. ResNet-18 transfer learning | Not started |
 | 6. Evaluation and comparison | Not started |
@@ -83,7 +84,7 @@ No model has been implemented or trained. **No classification results exist yet.
 | Val | 10 | 10 | 10.0 |
 | Test | 20 | 238 | 60.3 |
 
-Image sizes (300 random training images): width 500–857 px (median 667), height 500–861 px (median 500), aspect ratio 0.58–1.71 (median 1.33). The shorter side was 500 px in every sampled image.
+Image sizes (300 random training images): width 500–857 px (median 667), height 500–861 px (median 500), aspect ratio 0.58–1.71 (median 1.33). The shorter side was exactly 500 px in 94% of sampled images (corrected in Phase 2c; this file previously said "every").
 
 **Takeaways for later phases:** use the official splits unchanged; report macro-averaged and per-class metrics because the test set is imbalanced; every pipeline needs a resize/crop step; expect cluttered backgrounds, variable scale and colour variation within classes.
 
@@ -96,7 +97,7 @@ Fixes the infrastructure problems recorded after Phase 2, before Milestone 2 sta
 ### 5.1 Task 1: Git repository
 
 **What changed**
-- Initialised a Git repository (branch `master`, from your Git configuration) and created the **initial commit** after reviewing every staged file. Nothing was pushed.
+- Initialised a Git repository and created the **initial commit** (`20f73a4`) after reviewing every staged file. It is now on branch `main` and pushed to `https://github.com/didyouseejay/sibol.git`.
 - Rewrote `.gitignore`:
   - **excluded:** datasets and archives (`/data/`, `*.tgz`, `*.mat`, `flowers-102/`, `jpg/`), model checkpoints and weights (`/checkpoints/`, `*.pt`, `*.pth`, `*.ckpt`, …), cached features (`/features/`, `/cache/`, `*.npy`, `*.npz`, `*.h5`, …), temporary files, secrets and credentials (`.env`, `kaggle.json`, `credentials*.json`, …), Python caches, virtual environments and personal editor settings (`.vscode/`);
   - **tracked:** source code, tests, docs, notebooks, lightweight figures (`outputs/figures/*.png|svg|pdf`) and small metric files (`outputs/metrics/*.csv|json`).
@@ -160,7 +161,7 @@ Other improvements:
 | No dataset, archive, `.mat`, image or checkpoint staged | Confirmed |
 | Embedded figures vs `outputs/figures/*.png` | Byte-identical (all 4) |
 
-**Not yet validated:** the full positive path (extract → load → 10 checks → figures) of the rewritten notebook has **not** been run in Colab. The local machine has neither the dataset nor a Python environment with both torchvision and SciPy. This needs one fresh-session Colab run after the repository is pushed (see Next steps).
+**Positive path:** validated by the fresh-session Colab run in Phase 2c (Section 6).
 
 ### 5.5 Files affected
 
@@ -180,7 +181,39 @@ Other improvements:
 
 ---
 
-## 6. File inventory
+## 6. Phase 2c: Fresh-session Colab confirmation run (2026-11-14)
+
+**What happened:** `notebooks/01_dataset_exploration_sibol.ipynb` was run with **Runtime → Run all** in a fresh Colab session. The notebook cloned the repository (commit `20f73a4`), mounted Drive, verified the three source files (**MD5 OK** for all three), extracted 8,189 images to `/content/flowers102` in 5 s, loaded the splits without downloading anything, passed **10/10** integrity checks and saved the four figures to `MyDrive/sibol/outputs/figures`.
+
+The executed copy is kept locally as `notebooks/01_dataset_exploration_sibol_result.ipynb` and is **not tracked**. It embeds images and Drive paths, so `.gitignore` now excludes `notebooks/*_result.ipynb`. A scan found no secrets, tokens or email addresses in it.
+
+**Results compared with the 2026-11-11 run**
+
+| Item | 2026-11-14 run | Same as Phase 2? |
+|---|---|---|
+| Split sizes, total, classes, 10 per class, 0 shared files | train 1020, val 1020, test 6149; 8189; 102 each; 10; 0 | Yes |
+| Test images per class | min 20, max 238, mean 60.3 | Yes |
+| Largest test classes | petunia 238, passion flower 231, wallflower 176, water lily 174, watercress 164 | Yes |
+| Smallest test classes (20 each) | **7 tied:** pink primrose, canterbury bells, moon orchid, fire lily, prince of wales feathers, mexican aster, bolero deep blue | Yes (Phase 2 printed only 5 of the 7) |
+| Image sizes (300 train, seed 42) | width 500–857 (median 667), height 500–861 (median 500), aspect 0.58–1.71 (median 1.33) | Yes |
+| Shorter side = 500 px | **94%** of sampled images | **No:** Phase 2 said "every" image, judged from the scatter plot |
+| Random grid and pink primrose figure | Same 16 images (same seed); the visual observations hold | Yes |
+
+**Corrections made**
+
+| File | Change |
+|---|---|
+| `notebooks/01_dataset_exploration_sibol.ipynb` | Section 13 only: provenance now cites this run; all 7 tied smallest classes listed; "every image has a 500 px shorter side" replaced by "94%" (the other ~18 images are above 500 px by an amount too small to see in the plot; not measured) |
+| `docs/dataset_exploration_report.md` | The same two corrections; the run date notes the re-confirmation |
+| `.gitignore` | Ignores `notebooks/*_result.ipynb` |
+| `tests/test_notebooks.py` | The no-images / size / no-download rules skip git-ignored `*_result.ipynb` copies; those copies are still checked for valid JSON |
+| `Documentation.md` | Rewritten (this file) |
+
+**Validation:** `py -3.12 -m pytest tests/`: 31 passed (the 30 tracked tests plus a JSON-validity case for the local result copy). The notebook diff is the 3 changed lines in Section 13. `git check-ignore` confirms the result copy is ignored. **Nothing was committed or pushed** in this phase.
+
+---
+
+## 7. File inventory
 
 | File / folder | Purpose | Tracked |
 |---|---|---|
@@ -191,6 +224,7 @@ Other improvements:
 | `notebooks/00_environment_setup.ipynb` | Environment and GPU diagnostics, Drive mount | Yes |
 | `notebooks/01_dataset_exploration_sibol.ipynb` | Prepares, verifies (10 checks) and explores the dataset | Yes |
 | `notebooks/archive/01_dataset_exploration_sibol_run_2026-11-11.ipynb` | Record of the 2026-11-11 run (do not run) | Yes |
+| `notebooks/01_dataset_exploration_sibol_result.ipynb` | Executed copy of the 2026-11-14 Colab run, with figures | **No** (git-ignored, local only) |
 | `src/data/flowers102.py` | Dataset preparation, loading and integrity checks | Yes |
 | `src/classical/`, `src/models/`, `src/evaluation/`, `src/app/` | Empty packages for later milestones | Yes |
 | `tests/` | 30 unit and hygiene tests | Yes |
@@ -210,7 +244,7 @@ Other improvements:
 
 ---
 
-## 7. Environment notes
+## 8. Environment notes
 
 ### Local machine (Windows 11)
 
@@ -219,38 +253,38 @@ Other improvements:
 | 3.13 | `python` command | 2.15 (CPU) | 0.29 | present | **missing** | no SciPy, no pytest |
 | 3.12 | Jupyter kernel, tests | 2.3.1 (CPU) | **missing** | 2.5.2 | 1.17.1 | PyTorch cannot exchange data with NumPy 2.x; no torchvision |
 
-No local CUDA GPU. Nothing was installed. Git 2.51 is configured with user `didyouseejay` and default branch `master`.
+No local CUDA GPU. Nothing was installed. Git 2.51 is configured with user `didyouseejay`; the repository uses branch `main`, tracking `origin/main`.
 
 ### Google Colab
 
-Used for the dataset run on 2026-11-11. Packages are preinstalled and not reinstalled.
+Used for the dataset runs on 2026-11-11 and 2026-11-14. Packages are preinstalled and not reinstalled.
 
 ---
 
-## 8. Known issues and open items
+## 9. Known issues and open items
 
 | # | Issue | Impact | Suggested fix |
 |---|---|---|---|
-| 1 | **Repository not pushed yet.** `https://github.com/didyouseejay/sibol.git` was empty on 2026-11-11 | In a fresh Colab session the notebook stops at Section 3 with a clear message until the code is reachable | Confirm the remote URL and approve the push; or copy the project to Drive and set `CODE_DIR_COLAB` |
-| 2 | **Rewritten notebook not yet run in Colab** | The positive path is covered by unit tests but not by a real end-to-end run | After pushing, run it once in a fresh runtime and confirm 10/10 checks and the four figures |
-| 3 | Local Python environments are incomplete (Section 7) | The dataset cannot be loaded locally; local tests run on Python 3.12 only | Create a project virtual environment (commands in `README.md`) |
-| 4 | Working notebooks must be committed without embedded images | `tests/test_notebooks.py` fails if a Colab-saved notebook with images is committed | Clear outputs before committing (Edit → Clear all outputs) |
-| 5 | Helpers read torchvision's private `_labels` / `_image_files` | A future torchvision could rename them | Label reading has a fallback; if file names disappear, the disjointness check fails loudly instead of passing silently |
-| 6 | `sample_images.png` (1.72 MB) is the largest tracked file | Small repository growth | Acceptable; future figures should stay under about 2 MB |
+| 1 | Local Python environments are incomplete (Section 8) | The dataset cannot be loaded locally; local tests run on Python 3.12 only | Create a project virtual environment (commands in `README.md`) |
+| 2 | Working notebooks must be committed without embedded images | `tests/test_notebooks.py` fails if a Colab-saved notebook with images is committed | Clear outputs before committing (Edit → Clear all outputs), or save the executed copy as `notebooks/<name>_result.ipynb`, which is git-ignored |
+| 3 | Helpers read torchvision's private `_labels` / `_image_files` | A future torchvision could rename them | Label reading has a fallback; if file names disappear, the disjointness check fails loudly instead of passing silently |
+| 4 | `sample_images.png` (1.72 MB) is the largest tracked file | Small repository growth | Acceptable; future figures should stay under about 2 MB |
+| 5 | 6% of sampled images have a shorter side above 500 px; their exact sizes were not measured | None for the plan: every pipeline resizes anyway | Optional: print the non-500 sizes, or measure all 8,189 images, when preprocessing is designed |
+
+**Resolved in Phase 2c:** repository pushed (`origin/main`); the rewritten notebook was confirmed by a fresh-session Colab run.
 
 **Resolved in Phase 2b** (issue numbers from the previous version of this file): 1 git repository initialised (push pending, see issue 1 above), 2 Colab now uses the real project code, 3 source data persists on Drive and extraction to temporary disk is by design, 4 archive already in `MyDrive/sibol/data/`, 5 silent download removed, 6 Drive mounted explicitly, 7 figures saved to Drive, 8 heavy notebook archived as a slim record.
 
 ---
 
-## 9. Next steps
+## 10. Next steps
 
-1. **You:** confirm the GitHub remote URL (`https://github.com/didyouseejay/sibol.git`?) and approve the push.
-2. Push, then run `notebooks/01_dataset_exploration_sibol.ipynb` once in a fresh Colab runtime and confirm 10/10 checks and the figures in `MyDrive/sibol/outputs/figures`. Record the result here.
-3. After approval, start **Milestone 2: HOG + linear SVM** (NumPy/SciPy), with unit tests and a comparison against scikit-image's HOG.
+1. **You:** review and commit the Phase 2c changes (Section 6): `.gitignore`, `Documentation.md`, `docs/dataset_exploration_report.md`, `notebooks/01_dataset_exploration_sibol.ipynb`, `tests/test_notebooks.py`. The result notebook is git-ignored and stays local. All commits and pushes are made by you, not by Claude.
+2. After approval, start **Milestone 2: HOG + linear SVM** (NumPy/SciPy), with unit tests and a comparison against scikit-image's HOG. Choose the resize/crop size with the aspect-ratio range (0.58–1.71) in mind.
 
 ---
 
-## 10. Change history
+## 11. Change history
 
 | Date | Change |
 |---|---|
@@ -258,3 +292,4 @@ Used for the dataset run on 2026-11-11. Packages are preinstalled and not reinst
 | 2026-11-11 | Added a PyTorch↔NumPy compatibility check to notebook 00 after it found a NumPy 2.x / PyTorch conflict in the local Jupyter kernel. |
 | 2026-11-11 | Phase 2: dataset acquired and explored in Colab; all 10 split checks passed. Observations, `docs/dataset_exploration_report.md`, figures in `outputs/figures/`, README update; created this file. |
 | 2026-11-14 | Phase 2b: infrastructure stabilisation. Git initialised with a reviewed initial commit (not pushed); `.gitignore` rewritten and root-anchored (fixed `src/data/` being ignored); `.gitattributes` added; dataset helper rewritten so loading never downloads and `DOWNLOAD=True` is the only download path; notebook rewritten for fresh Colab sessions with explicit Drive mount, config-driven paths, MD5-verified source files, extraction to temporary disk and a stop on failed checks; 2026-11-11 run archived as a 34 KB record; superseded scaffold notebook removed; tests expanded from 9 to 30. |
+| 2026-11-14 | Phase 2c: fresh-session Colab run confirmed 10/10 checks and all Phase 2 numbers. Corrected "shorter side 500 px in every image" to 94% and listed all 7 tied smallest test classes (notebook Section 13, report, this file). `.gitignore` now excludes `notebooks/*_result.ipynb`; notebook hygiene tests skip those copies. Not committed. |

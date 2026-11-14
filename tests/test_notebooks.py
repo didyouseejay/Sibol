@@ -3,7 +3,8 @@
 - Every notebook is valid nbformat-4 JSON.
 - Working notebooks (notebooks/*.ipynb) carry no embedded images and stay
   under 1 MB, so heavy outputs are not committed. Figures belong in
-  outputs/figures/ instead.
+  outputs/figures/ instead. Git-ignored run copies (notebooks/*_result.ipynb)
+  are exempt.
 - Working notebooks never request a download directly; downloading is only
   possible through the DOWNLOAD flag and src.data.flowers102.
 
@@ -17,8 +18,12 @@ from pathlib import Path
 import pytest
 
 NOTEBOOK_DIR = Path(__file__).resolve().parents[1] / "notebooks"
+# Executed copies downloaded from Colab (notebooks/*_result.ipynb) are git-ignored
+# local records, so they may embed images; the hygiene rules below skip them.
+LOCAL_RESULT_SUFFIX = "_result.ipynb"
 ALL_NOTEBOOKS = sorted(NOTEBOOK_DIR.rglob("*.ipynb"))
-WORKING_NOTEBOOKS = sorted(NOTEBOOK_DIR.glob("*.ipynb"))
+WORKING_NOTEBOOKS = sorted(p for p in NOTEBOOK_DIR.glob("*.ipynb")
+                           if not p.name.endswith(LOCAL_RESULT_SUFFIX))
 MAX_NOTEBOOK_BYTES = 1_000_000
 
 

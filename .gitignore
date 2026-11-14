@@ -88,6 +88,8 @@ venv/
 
 # ---- Jupyter ----------------------------------------------------------------
 .ipynb_checkpoints/
+# Executed run copies downloaded from Colab (embedded images, Drive paths): keep local only
+notebooks/*_result.ipynb
 
 # ---- Gradio -----------------------------------------------------------------
 .gradio/
