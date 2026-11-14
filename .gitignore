@@ -1,0 +1,101 @@
+# =============================================================================
+# SIBOL .gitignore
+# Tracked: source code, tests, documentation, notebooks (without heavy outputs),
+#          lightweight figures (outputs/figures) and small metric files.
+# Never tracked: datasets, extracted images, model weights, feature caches,
+#                temporary files, secrets.
+# =============================================================================
+
+# ---- Datasets and archives ---------------------------------------------------
+# Root-anchored (a bare 'data/' would also hide the src/data/ package)
+/data/
+/datasets/
+flowers-102/
+jpg/
+*.tgz
+*.tar
+*.tar.gz
+*.zip
+*.7z
+*.mat
+
+# ---- Model checkpoints and weights ------------------------------------------
+/checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.joblib
+*.pkl
+*.pickle
+
+# ---- Cached features (e.g. HOG descriptors) and large arrays ----------------
+/features/
+/cache/
+.cache/
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.feather
+*.parquet
+
+# ---- Generated outputs: keep lightweight figures and metric files only -----
+outputs/**
+!outputs/**/
+!outputs/**/.gitkeep
+!outputs/figures/*.png
+!outputs/figures/*.svg
+!outputs/figures/*.pdf
+!outputs/metrics/*.csv
+!outputs/metrics/*.json
+
+# ---- Temporary files --------------------------------------------------------
+/tmp/
+/temp/
+*.tmp
+*.temp
+*.log
+*.bak
+*.swp
+~$*
+
+# ---- Secrets and credentials (never commit) ---------------------------------
+.env
+.env.*
+*.pem
+*.key
+.netrc
+kaggle.json
+token.json
+credentials*.json
+client_secret*.json
+service-account*.json
+
+# ---- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+/build/
+/dist/
+
+# ---- Virtual environments ---------------------------------------------------
+.venv/
+venv/
+/env/
+
+# ---- Jupyter ----------------------------------------------------------------
+.ipynb_checkpoints/
+
+# ---- Gradio -----------------------------------------------------------------
+.gradio/
+flagged/
+
+# ---- OS / editor (personal settings) ----------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

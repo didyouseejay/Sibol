@@ -1,0 +1,43 @@
+# SIBOL - Python dependencies
+#
+# Lower bounds only (no exact pins) so pip will not replace packages that are
+# already installed, e.g. the CUDA builds of PyTorch that Google Colab ships.
+#
+# Local install (inside a virtual environment):
+#     pip install -r requirements.txt
+# For a local NVIDIA GPU, install torch/torchvision first using the command
+# from https://pytorch.org/get-started/locally/ , then run the line above.
+#
+# Google Colab: PyTorch, Torchvision, NumPy, SciPy, scikit-learn, Matplotlib,
+# Pandas and Pillow are preinstalled. Do NOT reinstall torch/torchvision there;
+# notebooks/00_environment_setup.ipynb reports which packages are missing.
+
+# --- Core numerical computing (classical pipeline is built on these) --------
+numpy>=1.24
+scipy>=1.10
+
+# --- Deep learning (custom CNN + ResNet-18 transfer learning) --------------
+torch>=2.0
+torchvision>=0.15        # provides datasets.Flowers102 and pretrained ResNet-18
+
+# --- Images and plotting ----------------------------------------------------
+pillow>=9.0
+matplotlib>=3.7
+
+# --- Evaluation and reporting -----------------------------------------------
+# scikit-learn is used for evaluation metrics (confusion matrix, per-class
+# precision/recall) and as a reference to sanity-check our own SVM, NOT as
+# the classical classifier itself.
+scikit-learn>=1.3
+pandas>=2.0
+tqdm>=4.65
+
+# --- Reference implementation for validating our own HOG --------------------
+scikit-image>=0.21
+
+# --- Web application ----------------------------------------------------------
+gradio>=4.0
+
+# --- Notebooks and testing ----------------------------------------------------
+ipykernel>=6.0
+pytest>=7.0

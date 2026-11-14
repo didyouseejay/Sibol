@@ -1,0 +1,13 @@
+# Normalise line endings in the repository (Windows locally, Linux in Colab)
+* text=auto
+*.ipynb text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.tgz binary
+*.mat binary
